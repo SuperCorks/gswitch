@@ -14,6 +14,15 @@ export class GCloud {
     }
   }
 
+  async getActiveConfiguration() {
+    try {
+      const { stdout } = await execa('gcloud', ['config', 'configurations', 'list', '--filter=is_active:true', '--format=value(name)']);
+      return stdout.trim();
+    } catch (error) {
+      return null;
+    }
+  }
+
   async activateConfiguration(name) {
     try {
       await execa('gcloud', ['config', 'configurations', 'activate', name]);
@@ -68,6 +77,40 @@ export class GCloud {
     } catch (error) {
       return null;
     } 
+  }
+
+  async createConfiguration(name) {
+    try {
+      await execa('gcloud', ['config', 'configurations', 'create', name], { stdio: 'inherit' });
+    } catch (error) {
+      // It might fail if it already exists, let caller handle or ignore if safe
+      throw error;
+    }
+  }
+
+  async setAccount(email) {
+    await execa('gcloud', ['config', 'set', 'account', email], { stdio: 'inherit' });
+  }
+
+  async login(email) {
+    await execa('gcloud', ['auth', 'login', `--account=${email}`], { stdio: 'inherit' });
+  }
+
+  async loginAdc(email) {
+    await execa('gcloud', ['auth', 'application-default', 'login', `--account=${email}`], { stdio: 'inherit' });
+  }
+
+  async saveAdc(account) {
+    const homeDir = os.homedir();
+    const gcloudConfigPath = path.join(homeDir, '.config/gcloud/application_default_credentials.json');
+    const accountAdcPath = path.join(homeDir, '.config/gcloud', `application_default_credentials_${account}.json`);
+    
+    // Rename/Move
+    try {
+        await fs.rename(gcloudConfigPath, accountAdcPath);
+    } catch (error) {
+        throw new Error(`Failed to save ADC file: ${error.message}`);
+    }
   }
 }
 
