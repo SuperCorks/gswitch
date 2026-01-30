@@ -14,6 +14,18 @@ export class GCloud {
     }
   }
 
+  async getConfigurationsWithAccounts() {
+    try {
+      const { stdout } = await execa('gcloud', ['config', 'configurations', 'list', '--format=value(name,properties.core.account)']);
+      return stdout.split('\n').filter(Boolean).map(line => {
+        const [name, account] = line.split('\t');
+        return { name, account: account || null };
+      });
+    } catch (error) {
+      throw new Error(`Failed to list configurations: ${error.message}`);
+    }
+  }
+
   async getActiveConfiguration() {
     try {
       const { stdout } = await execa('gcloud', ['config', 'configurations', 'list', '--filter=is_active:true', '--format=value(name)']);

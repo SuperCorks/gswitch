@@ -30,21 +30,16 @@ ${chalk.bold('EXAMPLES')}
   ${chalk.dim('# Select configuration interactively')}
   $ gswitch
 
+  ${chalk.dim('# Add a new account')}
+  $ gswitch new
+
 ${chalk.bold('HOW TO ADD AN ACCOUNT')}
-  1. Login with new account:
-     ${chalk.cyan('gcloud auth login --account=user@example.com')}
-  2. Create new configuration:
-     ${chalk.cyan('gcloud config configurations create <name>')}
-  3. Activate it:
-     ${chalk.cyan('gcloud config configurations activate <name>')}
-  4. Set account:
-     ${chalk.cyan('gcloud config set account user@example.com')}
-  5. Login for application default credentials:
-     ${chalk.cyan('gcloud auth application-default login --account=user@example.com')}
-  6. Rename the credentials file to match your config:
-     ${chalk.cyan('mv ~/.config/gcloud/application_default_credentials.json ~/.config/gcloud/application_default_credentials_<name>.json')}
-  7. Now you can switch:
-     ${chalk.cyan('gswitch <name>')}
+  ${chalk.cyan('gswitch new [name] [email]')}
+
+  This will guide you through the setup process:
+  - Login with the new account
+  - Create and activate a gcloud configuration
+  - Set up application default credentials
 `)
     .action(switchAccount);
 
@@ -67,7 +62,7 @@ ${chalk.bold('HOW TO ADD AN ACCOUNT')}
 async function listConfigurations() {
     const spinner = ui.spinner('Loading configurations...').start();
     try {
-        const configs = await gcloud.getConfigurations();
+        const configs = await gcloud.getConfigurationsWithAccounts();
         const activeConfig = await gcloud.getActiveConfiguration();
         spinner.stop();
 
@@ -77,11 +72,12 @@ async function listConfigurations() {
         }
 
         console.log(ui.bold('Available Configurations:'));
-        configs.forEach(config => {
-            if (config === activeConfig) {
-                console.log(ui.success(`  • ${config} (current)`));
+        configs.forEach(({ name, account }) => {
+            const accountInfo = account ? ui.dim(` (${account})`) : '';
+            if (name === activeConfig) {
+                console.log(ui.success(`  • ${name}`) + accountInfo + ui.success(' [current]'));
             } else {
-                console.log(`  • ${config}`);
+                console.log(`  • ${name}${accountInfo}`);
             }
         });
 

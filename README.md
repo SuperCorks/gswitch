@@ -42,29 +42,12 @@ When you switch accounts, `gswitch` automatically:
 
 ## Adding a new account for gswitch
 
-To set up a new account (e.g., 'personal') so it works with `gswitch`:
+The easiest way to add a new account is with the `new` command:
 
-1.  **Login with the new account:**
-    ```bash
-    gcloud auth login --account=user@example.com
-    ```
+```bash
+gswitch new
+# Or with arguments:
+gswitch new personal user@example.com
+```
 
-2.  **Create and activate a new configuration:**
-    ```bash
-    gcloud config configurations create personal
-    gcloud config configurations activate personal
-    gcloud config set account user@example.com
-    ```
-
-3.  **Generate application default credentials:**
-    ```bash
-    gcloud auth application-default login --account=user@example.com
-    ```
-
-4.  **Save the credentials for gswitch:**
-    Rename the generated credentials file to match your configuration name:
-    ```bash
-    mv ~/.config/gcloud/application_default_credentials.json ~/.config/gcloud/application_default_credentials_personal.json
-    ```
-
-Now you can use `gswitch personal` or select it from the interactive list.
+This will guide you through the entire setup process automatically.
