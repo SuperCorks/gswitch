@@ -6,48 +6,49 @@ A CLI tool to seamlessly switch between Google Cloud configurations and update a
 
 ### Using npx (no installation required)
 ```bash
-npx gswitch [account]
+npx gswitch
 ```
 
 ### Global Installation
-Install globally to use the `gswitch` command anywhere:
-
 ```bash
-npm install -g .
-# Or if published to npm
-# npm install -g gswitch
+npm install -g gswitch
 ```
 
 ## Usage
 
-**Interactive Mode:**
-Run without arguments to select from available configurations:
+### Switch accounts
 ```bash
+# Interactive mode - select from available configurations
 gswitch
-```
 
-**Direct Switch:**
-Switch directly by providing the configuration name:
-```bash
+# Direct switch by configuration name
 gswitch personal
-gswitch work
 ```
 
-## How it works
-When you switch accounts, `gswitch` automatically:
-1. Activates the specified gcloud configuration
-2. Displays spinner while switching
-3. Updates your `application_default_credentials.json` by copying from `application_default_credentials_<account>.json`
-4. Displays the current project and other available projects
+### List configurations
+```bash
+gswitch list
+# or
+gswitch ls
+```
 
-## Adding a new account for gswitch
+Shows all configurations with their associated email addresses.
 
-The easiest way to add a new account is with the `new` command:
-
+### Add a new account
 ```bash
 gswitch new
 # Or with arguments:
 gswitch new personal user@example.com
 ```
 
-This will guide you through the entire setup process automatically.
+This guides you through the entire setup process:
+- Login with the new account
+- Create and activate a gcloud configuration
+- Set up application default credentials
+
+## How it works
+
+When you switch accounts, `gswitch` automatically:
+1. Activates the specified gcloud configuration
+2. Updates your `application_default_credentials.json` by copying from `application_default_credentials_<account>.json`
+3. Displays the current project and available projects
