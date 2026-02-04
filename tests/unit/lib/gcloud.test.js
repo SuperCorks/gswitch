@@ -20,7 +20,11 @@ describe('lib/gcloud', () => {
 
       const configs = await gcloud.getConfigurations();
       
-      expect(execaModule.execa).toHaveBeenCalledWith('gcloud', ['config', 'configurations', 'list', '--format=value(name)']);
+      expect(execaModule.execa).toHaveBeenCalledWith(
+        'gcloud', 
+        ['config', 'configurations', 'list', '--format=value(name)'],
+        { timeout: 10000 }
+      );
       expect(configs).toEqual(['default', 'personal', 'work']);
     });
 
@@ -37,12 +41,23 @@ describe('lib/gcloud', () => {
       await expect(gcloud.getConfigurations()).rejects.toThrow('Failed to list configurations: Command failed');
     });
 
+    it('should check if configuration exists', async () => {
+      vi.mocked(execaModule.execa).mockResolvedValue({ stdout: 'default\npersonal\nwork' });
+
+      expect(await gcloud.configurationExists('personal')).toBe(true);
+      expect(await gcloud.configurationExists('nonexistent')).toBe(false);
+    });
+
     it('should activate configuration', async () => {
       vi.mocked(execaModule.execa).mockResolvedValue({ stdout: '' });
 
       await gcloud.activateConfiguration('personal');
       
-      expect(execaModule.execa).toHaveBeenCalledWith('gcloud', ['config', 'configurations', 'activate', 'personal']);
+      expect(execaModule.execa).toHaveBeenCalledWith(
+        'gcloud', 
+        ['config', 'configurations', 'activate', 'personal', '--quiet'],
+        { timeout: 10000 }
+      );
     });
 
     it('should throw error when activating configuration fails', async () => {
@@ -58,7 +73,11 @@ describe('lib/gcloud', () => {
 
       const project = await gcloud.getCurrentProject();
       
-      expect(execaModule.execa).toHaveBeenCalledWith('gcloud', ['config', 'get-value', 'project', '--quiet']);
+      expect(execaModule.execa).toHaveBeenCalledWith(
+        'gcloud', 
+        ['config', 'get-value', 'project', '--quiet'],
+        { timeout: 5000 }
+      );
       expect(project).toBe('my-project');
     });
 
@@ -74,14 +93,63 @@ describe('lib/gcloud', () => {
 
       const projects = await gcloud.getAvailableProjects();
       
-      expect(execaModule.execa).toHaveBeenCalledWith('gcloud', ['projects', 'list', '--format=value(projectId)'], expect.any(Object));
+      expect(execaModule.execa).toHaveBeenCalledWith(
+        'gcloud', 
+        ['projects', 'list', '--format=value(projectId)', '--quiet'], 
+        { reject: false, timeout: 15000 }
+      );
       expect(projects).toEqual(['proj1', 'proj2']);
     });
 
-     it('should return empty list when get available projects fails', async () => {
+    it('should return empty list when get available projects fails', async () => {
       vi.mocked(execaModule.execa).mockRejectedValue(new Error('Command failed'));
 
       const projects = await gcloud.getAvailableProjects();
+      expect(projects).toEqual([]);
+    });
+
+    it('should return empty list when get available projects times out', async () => {
+      vi.mocked(execaModule.execa).mockResolvedValue({ stdout: '', timedOut: true });
+
+      const projects = await gcloud.getAvailableProjects();
+      expect(projects).toEqual([]);
+    });
+
+    it('should set project', async () => {
+      vi.mocked(execaModule.execa).mockResolvedValue({ stdout: '' });
+
+      await gcloud.setProject('my-project');
+      
+      expect(execaModule.execa).toHaveBeenCalledWith(
+        'gcloud', 
+        ['config', 'set', 'project', 'my-project', '--quiet'],
+        { timeout: 10000 }
+      );
+    });
+
+    it('should throw error when set project fails', async () => {
+      vi.mocked(execaModule.execa).mockRejectedValue(new Error('Command failed'));
+
+      await expect(gcloud.setProject('invalid')).rejects.toThrow("Failed to set project 'invalid': Command failed");
+    });
+
+    it('should get available projects with org info', async () => {
+      vi.mocked(execaModule.execa)
+        .mockResolvedValueOnce({ stdout: 'proj1\torganization\t123456\nproj2\t\t' })
+        .mockResolvedValueOnce({ stdout: 'My Org' });
+
+      const projects = await gcloud.getAvailableProjectsWithOrg();
+      
+      expect(projects).toEqual([
+        { projectId: 'proj1', orgName: 'My Org' },
+        { projectId: 'proj2', orgName: null }
+      ]);
+    });
+
+    it('should return empty list when get available projects with org fails', async () => {
+      vi.mocked(execaModule.execa).mockRejectedValue(new Error('Command failed'));
+
+      const projects = await gcloud.getAvailableProjectsWithOrg();
       expect(projects).toEqual([]);
     });
   });

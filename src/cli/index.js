@@ -14,6 +14,11 @@ const __dirname = path.dirname(__filename);
 const pkgPath = path.join(__dirname, '../../package.json');
 const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
 
+function isUserCancellation(error) {
+  // Check by error name since ExitPromptError may not be directly importable
+  return error?.name === 'ExitPromptError';
+}
+
 export async function run() {
   const program = new Command();
 
@@ -49,6 +54,11 @@ ${chalk.bold('HOW TO ADD AN ACCOUNT')}
     .argument('[name]', 'Name of the new configuration')
     .argument('[email]', 'Email address for the account')
     .action(createAccount);
+
+  program
+    .command('project')
+    .description('Interactively select and set the active project')
+    .action(selectProject);
 
   program
     .command('list')
@@ -88,27 +98,40 @@ async function listConfigurations() {
 }
 
 async function createAccount(name, email) {
-    if (!name) {
-        name = await input({ message: 'Enter new configuration name:' });
-    }
-    
-    if (!email) {
-        email = await input({ message: 'Enter email for the account:' });
+    try {
+        if (!name) {
+            name = await input({ message: 'Enter new configuration name:' });
+        }
+        
+        if (!email) {
+            email = await input({ message: 'Enter email for the account:' });
+        }
+    } catch (error) {
+        if (isUserCancellation(error)) {
+            process.exit(0);
+        }
+        throw error;
     }
 
-    console.log(ui.info(`\nSetting up new configuration '${name}' for ${email}...\n`));
+    // Check if configuration already exists
+    const configExists = await gcloud.configurationExists(name);
+    if (configExists) {
+        console.log(ui.info(`\nConfiguration '${name}' already exists. Refreshing credentials for ${email}...\n`));
+    } else {
+        console.log(ui.info(`\nSetting up new configuration '${name}' for ${email}...\n`));
+    }
 
     try {
         // 1. Login
         console.log(ui.bold('1. Logging in...'));
         await gcloud.login(email);
         
-        // 2. Create Configuration
-        console.log(ui.bold(`\n2. Creating configuration '${name}'...`));
-        try {
+        // 2. Create Configuration (only if it doesn't exist)
+        if (!configExists) {
+            console.log(ui.bold(`\n2. Creating configuration '${name}'...`));
             await gcloud.createConfiguration(name);
-        } catch (e) {
-            console.log(ui.warn(`Configuration '${name}' might already exist, proceeding...`));
+        } else {
+            console.log(ui.bold(`\n2. Configuration '${name}' already exists, skipping creation...`));
         }
 
         // 3. Activate
@@ -131,9 +154,69 @@ async function createAccount(name, email) {
         console.log(ui.dim(`You can now switch to it using: `) + ui.cmd(`gswitch ${name}`));
 
     } catch (error) {
+        if (isUserCancellation(error)) {
+            process.exit(0);
+        }
         console.error(ui.error(`\n❌ Failed to setup configuration: ${error.message}`));
         process.exit(1);
     }
+}
+
+async function selectProject() {
+  const spinner = ui.spinner('Loading available projects...').start();
+  
+  let projects;
+  let currentProject;
+  try {
+    [projects, currentProject] = await Promise.all([
+      gcloud.getAvailableProjectsWithOrg(),
+      gcloud.getCurrentProject()
+    ]);
+    spinner.stop();
+  } catch (error) {
+    spinner.fail('Failed to load projects');
+    throw error;
+  }
+
+  if (projects.length === 0) {
+    console.log(ui.warn('No projects found or failed to list projects.'));
+    return;
+  }
+
+  let selectedProject;
+  try {
+    selectedProject = await select({
+      message: 'Select a project:',
+      choices: projects.map(p => {
+        const orgSuffix = p.orgName ? ` ${ui.dim(`(${p.orgName})`)}` : '';
+        const currentSuffix = p.projectId === currentProject ? ' (current)' : '';
+        return {
+          value: p.projectId,
+          name: `${p.projectId}${orgSuffix}${currentSuffix}`
+        };
+      }),
+      default: currentProject || undefined,
+    });
+  } catch (error) {
+    if (isUserCancellation(error)) {
+      process.exit(0);
+    }
+    throw error;
+  }
+
+  if (selectedProject === currentProject) {
+    console.log(ui.dim(`Already using project '${selectedProject}'.`));
+    return;
+  }
+
+  const setSpinner = ui.spinner(`Setting project to '${selectedProject}'...`).start();
+  try {
+    await gcloud.setProject(selectedProject);
+    setSpinner.succeed(ui.success(`Project set to: ${ui.bold(selectedProject)}`));
+  } catch (error) {
+    setSpinner.fail(`Failed to set project`);
+    throw error;
+  }
 }
 
 async function switchAccount(account) {
@@ -157,14 +240,21 @@ async function switchAccount(account) {
 
     const activeConfig = await gcloud.getActiveConfiguration();
     
-    account = await select({
-      message: 'Select a gcloud configuration:',
-      choices: configs.map(c => ({ 
-        value: c, 
-        name: c === activeConfig ? `${c} (current)` : c 
-      })),
-      default: activeConfig || undefined,
-    });
+    try {
+      account = await select({
+        message: 'Select a gcloud configuration:',
+        choices: configs.map(c => ({ 
+          value: c, 
+          name: c === activeConfig ? `${c} (current)` : c 
+        })),
+        default: activeConfig || undefined,
+      });
+    } catch (error) {
+      if (isUserCancellation(error)) {
+        process.exit(0);
+      }
+      throw error;
+    }
   }
 
   // Validate account
@@ -176,7 +266,9 @@ async function switchAccount(account) {
   const switchSpinner = ui.spinner(`Switching to '${account}'...`).start();
   try {
     await gcloud.activateConfiguration(account);
-    switchSpinner.succeed(ui.success(`Switched to account: ${ui.bold(account)}`));
+    const email = await gcloud.getCurrentAccount();
+    const accountDisplay = email ? `${ui.bold(account)} ${ui.dim(`(${email})`)}` : ui.bold(account);
+    switchSpinner.succeed(ui.success(`Switched to account: ${accountDisplay}`));
   } catch (error) {
     switchSpinner.fail(`Failed to switch to '${account}'`);
     throw error;
@@ -184,9 +276,7 @@ async function switchAccount(account) {
 
   // Update ADC
   const adcUpdated = await gcloud.updateAdc(account);
-  if (adcUpdated) {
-    console.log(ui.success('✅ Application-default credentials updated.'));
-  } else {
+  if (!adcUpdated) {
     console.log(ui.warn(`⚠️  Warning: Application-default credentials file is missing for '${account}'.`));
     console.log(ui.hint('Run the following command to generate it:'));
     
@@ -205,17 +295,8 @@ async function switchAccount(account) {
   // Show Project Info
   const projectSpinner = ui.spinner('Fetching project info...').start();
   const currentProject = await gcloud.getCurrentProject();
-  const projects = await gcloud.getAvailableProjects();
   projectSpinner.stop();
 
-  console.log();
   console.log(ui.kv('🌍 Current Project', currentProject ? ui.success(currentProject) : ui.dim('None')));
-  
-  if (projects.length > 0) {
-    // If too many projects, maybe don't list them all inline
-    const projectList = projects.join(', ');
-    console.log(ui.kv('📜 Available Projects', projectList));
-  } else {
-    console.log(ui.dim('No other projects found or failed to list projects.'));
-  }
+  console.log(ui.dim('To change project, run: ') + ui.cmd('gswitch project'));
 }
