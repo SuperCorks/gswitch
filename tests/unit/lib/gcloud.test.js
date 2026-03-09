@@ -4,6 +4,7 @@ import * as execaModule from 'execa';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
+import { PassThrough } from 'stream';
 
 vi.mock('execa');
 vi.mock('fs/promises');
@@ -182,6 +183,64 @@ describe('lib/gcloud', () => {
 
       expect(fs.copyFile).not.toHaveBeenCalled();
       expect(result).toBe(false);
+    });
+  });
+
+  describe('auth flows', () => {
+    it('should run standard auth login by default', async () => {
+      vi.mocked(execaModule.execa).mockResolvedValue({ stdout: '' });
+
+      await gcloud.login('user@example.com');
+
+      expect(execaModule.execa).toHaveBeenCalledWith(
+        'gcloud',
+        ['auth', 'login', '--account=user@example.com'],
+        { stdio: 'inherit' }
+      );
+    });
+
+    it('should launch Chrome incognito for private login on macOS', async () => {
+      vi.mocked(os.platform).mockReturnValue('darwin');
+
+      const stdout = new PassThrough();
+      const stderr = new PassThrough();
+      let resolveChild;
+      const child = new Promise(resolve => {
+        resolveChild = resolve;
+      });
+      child.stdout = stdout;
+      child.stderr = stderr;
+
+      vi.mocked(execaModule.execa)
+        .mockImplementationOnce(() => child)
+        .mockResolvedValueOnce({ exitCode: 0, failed: false });
+
+      const stdoutWrite = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+      const url = 'https://accounts.google.com/o/oauth2/auth?foo=bar';
+
+      const loginPromise = gcloud.login('user@example.com', { private: true });
+      stdout.write(`Open the following link in your browser:\n${url}\n`);
+      resolveChild({ exitCode: 0 });
+      await loginPromise;
+
+      expect(execaModule.execa).toHaveBeenNthCalledWith(
+        1,
+        'gcloud',
+        ['auth', 'login', '--account=user@example.com', '--no-launch-browser'],
+        {
+          stdin: 'inherit',
+          stdout: 'pipe',
+          stderr: 'pipe'
+        }
+      );
+      expect(execaModule.execa).toHaveBeenNthCalledWith(
+        2,
+        'open',
+        ['-na', 'Google Chrome', '--args', '--incognito', url],
+        { reject: false }
+      );
+
+      stdoutWrite.mockRestore();
     });
   });
 });

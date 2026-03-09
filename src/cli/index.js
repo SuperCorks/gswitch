@@ -53,7 +53,8 @@ ${chalk.bold('HOW TO ADD AN ACCOUNT')}
     .description('Create a new gcloud configuration and set up credentials')
     .argument('[name]', 'Name of the new configuration')
     .argument('[email]', 'Email address for the account')
-    .action(createAccount);
+    .option('--private', 'Open OAuth URLs in a Chrome incognito window')
+    .action((name, email, options) => createAccount(name, email, options));
 
   program
     .command('project')
@@ -97,7 +98,7 @@ async function listConfigurations() {
     }
 }
 
-async function createAccount(name, email) {
+async function createAccount(name, email, options = {}) {
     try {
         if (!name) {
             name = await input({ message: 'Enter new configuration name:' });
@@ -124,7 +125,7 @@ async function createAccount(name, email) {
     try {
         // 1. Login
         console.log(ui.bold('1. Logging in...'));
-        await gcloud.login(email);
+        await gcloud.login(email, options);
         
         // 2. Create Configuration (only if it doesn't exist)
         if (!configExists) {
@@ -144,7 +145,7 @@ async function createAccount(name, email) {
 
         // 5. Login ADC
         console.log(ui.bold('\n5. Setting up Application Default Credentials (ADC)...'));
-        await gcloud.loginAdc(email);
+        await gcloud.loginAdc(email, options);
 
         // 6. Rename ADC file
         console.log(ui.bold(`\n6. Saving ADC file for '${name}'...`));

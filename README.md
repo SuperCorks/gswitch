@@ -42,12 +42,15 @@ Shows all configurations with their associated email addresses.
 gswitch new
 # Or with arguments:
 gswitch new personal user@example.com
+gswitch new personal user@example.com --private
 ```
 
 This guides you through the entire setup process:
 - Login with the new account
 - Create and activate a gcloud configuration
 - Set up application default credentials
+
+Use `--private` to run both OAuth steps with `gcloud --no-launch-browser` and open the emitted auth URL in a Google Chrome incognito window.
 
 Running `gswitch new` on an existing configuration will refresh the credentials without recreating the configuration.
 

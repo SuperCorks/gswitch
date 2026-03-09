@@ -4,6 +4,8 @@ import path from 'path';
 import os from 'os';
 import { ui } from './ui.js';
 
+const OAUTH_URL_PATTERN = /https:\/\/accounts\.google\.com\/[^\s]+|https:\/\/[^\s]+/g;
+
 export class GCloud {
   async getConfigurations() {
     try {
@@ -191,11 +193,21 @@ export class GCloud {
     await execa('gcloud', ['config', 'set', 'account', email], { stdio: 'inherit' });
   }
 
-  async login(email) {
+  async login(email, options = {}) {
+    if (options.private) {
+      await this.runPrivateLogin(['auth', 'login', `--account=${email}`]);
+      return;
+    }
+
     await execa('gcloud', ['auth', 'login', `--account=${email}`], { stdio: 'inherit' });
   }
 
-  async loginAdc(email) {
+  async loginAdc(email, options = {}) {
+    if (options.private) {
+      await this.runPrivateLogin(['auth', 'application-default', 'login', `--account=${email}`]);
+      return;
+    }
+
     await execa('gcloud', ['auth', 'application-default', 'login', `--account=${email}`], { stdio: 'inherit' });
   }
 
@@ -210,6 +222,76 @@ export class GCloud {
     } catch (error) {
         throw new Error(`Failed to save ADC file: ${error.message}`);
     }
+  }
+
+  async runPrivateLogin(args) {
+    const child = execa('gcloud', [...args, '--no-launch-browser'], {
+      stdin: 'inherit',
+      stdout: 'pipe',
+      stderr: 'pipe'
+    });
+
+    let launched = false;
+    let recentOutput = '';
+
+    const handleChunk = (chunk, stream) => {
+      const text = chunk.toString();
+      stream.write(text);
+
+      if (launched) {
+        return;
+      }
+
+      recentOutput = `${recentOutput}${text}`.slice(-12000);
+      const url = this.extractOAuthUrl(recentOutput);
+      if (!url) {
+        return;
+      }
+
+      launched = true;
+      void this.launchChromePrivate(url).catch(() => {
+        console.error(ui.warn(`\nCould not launch Google Chrome in incognito mode automatically.`));
+        console.error(ui.hint(`Open this URL in Chrome manually: ${url}`));
+      });
+    };
+
+    child.stdout?.on('data', chunk => handleChunk(chunk, process.stdout));
+    child.stderr?.on('data', chunk => handleChunk(chunk, process.stderr));
+
+    await child;
+  }
+
+  extractOAuthUrl(output) {
+    const matches = output.match(OAUTH_URL_PATTERN);
+    if (!matches?.length) {
+      return null;
+    }
+
+    return matches.find(url => url.includes('accounts.google.com')) || matches[0];
+  }
+
+  async launchChromePrivate(url) {
+    const platform = os.platform();
+    const commands = {
+      darwin: [['open', ['-na', 'Google Chrome', '--args', '--incognito', url]]],
+      linux: [
+        ['google-chrome', ['--incognito', url]],
+        ['google-chrome-stable', ['--incognito', url]],
+        ['chromium', ['--incognito', url]],
+        ['chromium-browser', ['--incognito', url]]
+      ],
+      win32: [['cmd', ['/c', 'start', '', 'chrome', '--incognito', url]]]
+    };
+
+    for (const [command, args] of commands[platform] || []) {
+      const result = await execa(command, args, { reject: false });
+      if (!result.failed && result.exitCode === 0) {
+        console.log(ui.hint('Opened the OAuth URL in a Chrome incognito window.'));
+        return;
+      }
+    }
+
+    throw new Error(`Failed to launch Chrome on ${platform}`);
   }
 }
 
