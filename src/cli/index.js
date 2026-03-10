@@ -98,7 +98,7 @@ async function listConfigurations() {
     }
 }
 
-async function createAccount(name, email, options = {}) {
+export async function createAccount(name, email, options = {}) {
     try {
         if (!name) {
             name = await input({ message: 'Enter new configuration name:' });
@@ -123,21 +123,21 @@ async function createAccount(name, email, options = {}) {
     }
 
     try {
-        // 1. Login
-        console.log(ui.bold('1. Logging in...'));
-        await gcloud.login(email, options);
-        
-        // 2. Create Configuration (only if it doesn't exist)
+        // 1. Create Configuration (only if it doesn't exist)
         if (!configExists) {
-            console.log(ui.bold(`\n2. Creating configuration '${name}'...`));
+            console.log(ui.bold(`\n1. Creating configuration '${name}'...`));
             await gcloud.createConfiguration(name);
         } else {
-            console.log(ui.bold(`\n2. Configuration '${name}' already exists, skipping creation...`));
+            console.log(ui.bold(`\n1. Configuration '${name}' already exists, skipping creation...`));
         }
 
-        // 3. Activate
-        console.log(ui.bold(`\n3. Activating configuration '${name}'...`));
+        // 2. Activate the target config before auth mutates account settings.
+        console.log(ui.bold(`\n2. Activating configuration '${name}'...`));
         await gcloud.activateConfiguration(name);
+
+        // 3. Login
+        console.log(ui.bold('\n3. Logging in...'));
+        await gcloud.login(email, options);
 
         // 4. Set Account
         console.log(ui.bold(`\n4. Setting account to ${email}...`));

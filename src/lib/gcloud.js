@@ -182,7 +182,7 @@ export class GCloud {
 
   async createConfiguration(name) {
     try {
-      await execa('gcloud', ['config', 'configurations', 'create', name], { stdio: 'inherit' });
+      await execa('gcloud', ['config', 'configurations', 'create', name, '--no-activate'], { stdio: 'inherit' });
     } catch (error) {
       // It might fail if it already exists, let caller handle or ignore if safe
       throw error;

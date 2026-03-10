@@ -66,6 +66,18 @@ describe('lib/gcloud', () => {
 
       await expect(gcloud.activateConfiguration('invalid')).rejects.toThrow("Failed to activate configuration 'invalid': Command failed");
     });
+
+    it('should create configurations without auto-activating them', async () => {
+      vi.mocked(execaModule.execa).mockResolvedValue({ stdout: '' });
+
+      await gcloud.createConfiguration('personal');
+
+      expect(execaModule.execa).toHaveBeenCalledWith(
+        'gcloud',
+        ['config', 'configurations', 'create', 'personal', '--no-activate'],
+        { stdio: 'inherit' }
+      );
+    });
   });
 
   describe('project info', () => {
