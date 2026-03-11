@@ -194,21 +194,35 @@ export class GCloud {
   }
 
   async login(email, options = {}) {
+    const args = this.buildAuthArgs(['auth', 'login'], email);
+
     if (options.private) {
-      await this.runPrivateLogin(['auth', 'login', `--account=${email}`]);
+      await this.runPrivateLogin(args);
       return;
     }
 
-    await execa('gcloud', ['auth', 'login', `--account=${email}`], { stdio: 'inherit' });
+    await execa('gcloud', args, { stdio: 'inherit' });
   }
 
   async loginAdc(email, options = {}) {
+    const args = this.buildAuthArgs(['auth', 'application-default', 'login'], email, options);
+
     if (options.private) {
-      await this.runPrivateLogin(['auth', 'application-default', 'login', `--account=${email}`]);
+      await this.runPrivateLogin(args);
       return;
     }
 
-    await execa('gcloud', ['auth', 'application-default', 'login', `--account=${email}`], { stdio: 'inherit' });
+    await execa('gcloud', args, { stdio: 'inherit' });
+  }
+
+  buildAuthArgs(baseArgs, email, options = {}) {
+    const args = [...baseArgs, `--account=${email}`];
+
+    if (options.scopes) {
+      args.push(`--scopes=${options.scopes}`);
+    }
+
+    return args;
   }
 
   async saveAdc(account) {

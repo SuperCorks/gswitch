@@ -43,14 +43,21 @@ gswitch new
 # Or with arguments:
 gswitch new personal user@example.com
 gswitch new personal user@example.com --private
+gswitch new personal user@example.com --scopes=https://www.googleapis.com/auth/spreadsheets,https://www.googleapis.com/auth/cloud-platform
 ```
 
 This guides you through the entire setup process:
-- Login with the new account
-- Create and activate a gcloud configuration
+- Create the gcloud configuration if it does not already exist
+- Activate the target configuration before starting OAuth
+- Log in with the selected account
 - Set up application default credentials
+- Save the ADC file under the configuration name for future switching
+- Re-activate the target configuration when setup completes
+- Restore the live ADC file so application-default commands work immediately
 
 Use `--private` to run both OAuth steps with `gcloud --no-launch-browser` and open the emitted auth URL in a Google Chrome incognito window.
+
+Use `--scopes` to pass a comma-separated scope list to `gcloud auth application-default login`. `gcloud auth login` does not support that flag, so `gswitch` only applies custom scopes to the ADC step.
 
 Running `gswitch new` on an existing configuration will refresh the credentials without recreating the configuration.
 

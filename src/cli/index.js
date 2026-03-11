@@ -54,6 +54,7 @@ ${chalk.bold('HOW TO ADD AN ACCOUNT')}
     .argument('[name]', 'Name of the new configuration')
     .argument('[email]', 'Email address for the account')
     .option('--private', 'Open OAuth URLs in a Chrome incognito window')
+    .option('--scopes <scopes>', 'Comma-separated OAuth scopes to pass to application-default login')
     .action((name, email, options) => createAccount(name, email, options));
 
   program
@@ -99,6 +100,11 @@ async function listConfigurations() {
 }
 
 export async function createAccount(name, email, options = {}) {
+    const normalizedOptions = {
+        ...options,
+        scopes: normalizeScopes(options.scopes)
+    };
+
     try {
         if (!name) {
             name = await input({ message: 'Enter new configuration name:' });
@@ -137,7 +143,7 @@ export async function createAccount(name, email, options = {}) {
 
         // 3. Login
         console.log(ui.bold('\n3. Logging in...'));
-        await gcloud.login(email, options);
+        await gcloud.login(email, normalizedOptions);
 
         // 4. Set Account
         console.log(ui.bold(`\n4. Setting account to ${email}...`));
@@ -145,11 +151,22 @@ export async function createAccount(name, email, options = {}) {
 
         // 5. Login ADC
         console.log(ui.bold('\n5. Setting up Application Default Credentials (ADC)...'));
-        await gcloud.loginAdc(email, options);
+        await gcloud.loginAdc(email, normalizedOptions);
 
         // 6. Rename ADC file
         console.log(ui.bold(`\n6. Saving ADC file for '${name}'...`));
         await gcloud.saveAdc(name);
+
+        // 7. Re-activate the target config in case auth commands changed it.
+        console.log(ui.bold(`\n7. Re-activating configuration '${name}'...`));
+        await gcloud.activateConfiguration(name);
+
+        // 8. Restore the active ADC file from the saved config snapshot.
+        console.log(ui.bold(`\n8. Restoring ADC for '${name}'...`));
+        const adcRestored = await gcloud.updateAdc(name);
+        if (!adcRestored) {
+            throw new Error(`Failed to restore ADC file for '${name}'`);
+        }
 
         console.log(ui.success(`\n✅ Configuration '${name}' setup complete!`));
         console.log(ui.dim(`You can now switch to it using: `) + ui.cmd(`gswitch ${name}`));
@@ -161,6 +178,19 @@ export async function createAccount(name, email, options = {}) {
         console.error(ui.error(`\n❌ Failed to setup configuration: ${error.message}`));
         process.exit(1);
     }
+}
+
+function normalizeScopes(rawScopes) {
+    if (!rawScopes) {
+        return undefined;
+    }
+
+    const scopes = rawScopes
+        .split(',')
+        .map(scope => scope.trim())
+        .filter(Boolean);
+
+    return scopes.length > 0 ? scopes.join(',') : undefined;
 }
 
 async function selectProject() {

@@ -211,6 +211,44 @@ describe('lib/gcloud', () => {
       );
     });
 
+    it('should ignore scopes in standard auth login when provided', async () => {
+      vi.mocked(execaModule.execa).mockResolvedValue({ stdout: '' });
+
+      await gcloud.login('user@example.com', {
+        scopes: 'https://www.googleapis.com/auth/spreadsheets,https://www.googleapis.com/auth/cloud-platform'
+      });
+
+      expect(execaModule.execa).toHaveBeenCalledWith(
+        'gcloud',
+        [
+          'auth',
+          'login',
+          '--account=user@example.com'
+        ],
+        { stdio: 'inherit' }
+      );
+    });
+
+    it('should include scopes in ADC login when provided', async () => {
+      vi.mocked(execaModule.execa).mockResolvedValue({ stdout: '' });
+
+      await gcloud.loginAdc('user@example.com', {
+        scopes: 'https://www.googleapis.com/auth/spreadsheets,https://www.googleapis.com/auth/cloud-platform'
+      });
+
+      expect(execaModule.execa).toHaveBeenCalledWith(
+        'gcloud',
+        [
+          'auth',
+          'application-default',
+          'login',
+          '--account=user@example.com',
+          '--scopes=https://www.googleapis.com/auth/spreadsheets,https://www.googleapis.com/auth/cloud-platform'
+        ],
+        { stdio: 'inherit' }
+      );
+    });
+
     it('should launch Chrome incognito for private login on macOS', async () => {
       vi.mocked(os.platform).mockReturnValue('darwin');
 
