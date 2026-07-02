@@ -4,6 +4,7 @@ import * as execaModule from 'execa';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
+import { PassThrough } from 'stream';
 import { GWS_IDENTITY_SCOPES } from '../../../src/lib/oauthScopes.js';
 
 vi.mock('execa');
@@ -54,7 +55,11 @@ describe('lib/gws', () => {
       2,
       'gws',
       ['auth', 'login', `--scopes=${[...GWS_IDENTITY_SCOPES, 'scope-a', 'scope-b'].join(',')}`],
-      { stdio: 'inherit' }
+      {
+        stdin: 'inherit',
+        stdout: 'pipe',
+        stderr: 'pipe'
+      }
     );
   });
 
@@ -69,8 +74,88 @@ describe('lib/gws', () => {
       2,
       'gws',
       ['auth', 'login', `--scopes=${GWS_IDENTITY_SCOPES.join(',')}`],
-      { stdio: 'inherit' }
+      {
+        stdin: 'inherit',
+        stdout: 'pipe',
+        stderr: 'pipe'
+      }
     );
+  });
+
+  it('opens the emitted gws OAuth URL in the default browser', async () => {
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+    let resolveChild;
+    const child = new Promise(resolve => {
+      resolveChild = resolve;
+    });
+    child.stdout = stdout;
+    child.stderr = stderr;
+
+    vi.mocked(execaModule.execa)
+      .mockResolvedValueOnce({ exitCode: 0, failed: false })
+      .mockImplementationOnce(() => child);
+
+    const launchSpy = vi.spyOn(gws, 'launchOAuthUrl').mockResolvedValue(undefined);
+    const stdoutWrite = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const url = 'https://accounts.google.com/o/oauth2/auth?foo=bar';
+
+    const loginPromise = gws.login();
+    stdout.write(`Open this URL:\n${url}\n`);
+    await new Promise(resolve => setImmediate(resolve));
+    resolveChild({ exitCode: 0 });
+    await loginPromise;
+
+    expect(launchSpy).toHaveBeenCalledWith(url, {});
+
+    stdoutWrite.mockRestore();
+  });
+
+  it('opens the emitted gws OAuth URL in Chrome incognito for private login', async () => {
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+    let resolveChild;
+    const child = new Promise(resolve => {
+      resolveChild = resolve;
+    });
+    child.stdout = stdout;
+    child.stderr = stderr;
+
+    vi.mocked(execaModule.execa)
+      .mockResolvedValueOnce({ exitCode: 0, failed: false })
+      .mockImplementationOnce(() => child);
+
+    const launchSpy = vi.spyOn(gws, 'launchOAuthUrl').mockResolvedValue(undefined);
+    const stdoutWrite = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const url = 'https://accounts.google.com/o/oauth2/auth?foo=bar';
+
+    const loginPromise = gws.login({ private: true });
+    stdout.write(`Open this URL:\n${url}\n`);
+    await new Promise(resolve => setImmediate(resolve));
+    resolveChild({ exitCode: 0 });
+    await loginPromise;
+
+    expect(launchSpy).toHaveBeenCalledWith(url, { private: true });
+
+    stdoutWrite.mockRestore();
+  });
+
+  it('uses the default browser for standard gws OAuth URLs', async () => {
+    const url = 'https://accounts.google.com/o/oauth2/auth?foo=bar';
+    const launchSpy = vi.spyOn(gws, 'launchDefaultBrowser').mockResolvedValue(undefined);
+
+    await gws.launchOAuthUrl(url);
+
+    expect(launchSpy).toHaveBeenCalledWith(url);
+  });
+
+  it('uses Chrome incognito for private gws OAuth URLs', async () => {
+    const url = 'https://accounts.google.com/o/oauth2/auth?foo=bar';
+    const launchSpy = vi.spyOn(gws, 'launchChromePrivate').mockResolvedValue(undefined);
+
+    await gws.launchOAuthUrl(url, { private: true });
+
+    expect(launchSpy).toHaveBeenCalledWith(url);
   });
 
   it('passes OAuth client file credentials through environment variables', async () => {
@@ -94,7 +179,9 @@ describe('lib/gws', () => {
       'gws',
       ['auth', 'login', `--scopes=${[...GWS_IDENTITY_SCOPES, 'scope-a'].join(',')}`],
       {
-        stdio: 'inherit',
+        stdin: 'inherit',
+        stdout: 'pipe',
+        stderr: 'pipe',
         env: expect.objectContaining({
           GOOGLE_WORKSPACE_CLI_CLIENT_ID: 'client-id.apps.googleusercontent.com',
           GOOGLE_WORKSPACE_CLI_CLIENT_SECRET: 'client-secret'
