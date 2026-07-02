@@ -44,6 +44,7 @@ gswitch new
 gswitch new personal user@example.com
 gswitch new personal user@example.com --private
 gswitch new personal user@example.com --scopes=https://www.googleapis.com/auth/spreadsheets,https://www.googleapis.com/auth/cloud-platform
+gswitch new personal user@example.com --gmail --calendar --drive
 ```
 
 This guides you through the entire setup process:
@@ -52,12 +53,23 @@ This guides you through the entire setup process:
 - Log in with the selected account
 - Set up application default credentials
 - Save the ADC file under the configuration name for future switching
+- Log in to `gws` when the Google Workspace CLI is installed
+- Save `gws` credentials under the configuration name for future switching
 - Re-activate the target configuration when setup completes
 - Restore the live ADC file so application-default commands work immediately
 
 Use `--private` to run both OAuth steps with `gcloud --no-launch-browser` and open the emitted auth URL in a Google Chrome incognito window.
 
 Use `--scopes` to pass a comma-separated scope list to `gcloud auth application-default login`. `gcloud auth login` does not support that flag, so `gswitch` only applies custom scopes to the ADC step.
+
+Use the helper flags to add common Google Workspace permissions to both ADC and `gws auth login`:
+- `--gmail` adds Gmail read/write email access
+- `--calendar` adds Google Calendar read/write access
+- `--drive` adds Google Drive, Google Docs, and Google Sheets read/write access
+
+When any helper flag is used, `gswitch` also includes the default Google Cloud ADC scope so the resulting ADC file still works for Google Cloud SDK workflows.
+
+If the `gws` command is installed, `gswitch new` runs `gws auth login` with identity scopes plus any requested helper or custom scopes, then saves any `~/.config/gws/credentials.enc` or `~/.config/gws/credentials.json` file under the configuration name. Later `gswitch <account>` calls restore those saved `gws` credentials when available. If `gws` is not installed, setup continues normally.
 
 Running `gswitch new` on an existing configuration will refresh the credentials without recreating the configuration.
 

@@ -5,6 +5,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { ui } from '../lib/ui.js';
 import { gcloud } from '../lib/gcloud.js';
+import { gws } from '../lib/gws.js';
+import { resolveLoginScopes } from '../lib/oauthScopes.js';
 import { select, input } from '@inquirer/prompts';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -37,6 +39,7 @@ ${chalk.bold('EXAMPLES')}
 
   ${chalk.dim('# Add a new account')}
   $ gswitch new
+  $ gswitch new personal user@example.com --gmail --calendar --drive
 
 ${chalk.bold('HOW TO ADD AN ACCOUNT')}
   ${chalk.cyan('gswitch new [name] [email]')}
@@ -55,6 +58,9 @@ ${chalk.bold('HOW TO ADD AN ACCOUNT')}
     .argument('[email]', 'Email address for the account')
     .option('--private', 'Open OAuth URLs in a Chrome incognito window')
     .option('--scopes <scopes>', 'Comma-separated OAuth scopes to pass to application-default login')
+    .option('--gmail', 'Add Gmail read/write scopes to application-default and gws login')
+    .option('--calendar', 'Add Google Calendar read/write scopes to application-default and gws login')
+    .option('--drive', 'Add Drive, Google Docs, and Google Sheets read/write scopes to application-default and gws login')
     .action((name, email, options) => createAccount(name, email, options));
 
   program
@@ -102,7 +108,7 @@ async function listConfigurations() {
 export async function createAccount(name, email, options = {}) {
     const normalizedOptions = {
         ...options,
-        scopes: normalizeScopes(options.scopes)
+        scopes: resolveLoginScopes(options)
     };
 
     try {
@@ -157,12 +163,27 @@ export async function createAccount(name, email, options = {}) {
         console.log(ui.bold(`\n6. Saving ADC file for '${name}'...`));
         await gcloud.saveAdc(name);
 
-        // 7. Re-activate the target config in case auth commands changed it.
-        console.log(ui.bold(`\n7. Re-activating configuration '${name}'...`));
+        // 7. Login gws when it is available, then snapshot its global credential slot.
+        console.log(ui.bold('\n7. Setting up Google Workspace CLI (gws)...'));
+        console.log(ui.dim(`Use ${email} in the browser consent flow if prompted.`));
+        const gwsLoggedIn = await gws.login(normalizedOptions);
+        if (gwsLoggedIn) {
+            const gwsSaved = await gws.saveCredentials(name);
+            if (gwsSaved) {
+                console.log(ui.success('Google Workspace CLI credentials saved.'));
+            } else {
+                console.log(ui.warn('gws login completed, but no credential file was found to save.'));
+            }
+        } else {
+            console.log(ui.dim('gws is not installed, skipping Google Workspace CLI login.'));
+        }
+
+        // 8. Re-activate the target config in case auth commands changed it.
+        console.log(ui.bold(`\n8. Re-activating configuration '${name}'...`));
         await gcloud.activateConfiguration(name);
 
-        // 8. Restore the active ADC file from the saved config snapshot.
-        console.log(ui.bold(`\n8. Restoring ADC for '${name}'...`));
+        // 9. Restore the active ADC file from the saved config snapshot.
+        console.log(ui.bold(`\n9. Restoring ADC for '${name}'...`));
         const adcRestored = await gcloud.updateAdc(name);
         if (!adcRestored) {
             throw new Error(`Failed to restore ADC file for '${name}'`);
@@ -178,19 +199,6 @@ export async function createAccount(name, email, options = {}) {
         console.error(ui.error(`\n❌ Failed to setup configuration: ${error.message}`));
         process.exit(1);
     }
-}
-
-function normalizeScopes(rawScopes) {
-    if (!rawScopes) {
-        return undefined;
-    }
-
-    const scopes = rawScopes
-        .split(',')
-        .map(scope => scope.trim())
-        .filter(Boolean);
-
-    return scopes.length > 0 ? scopes.join(',') : undefined;
 }
 
 async function selectProject() {
@@ -321,6 +329,19 @@ async function switchAccount(account) {
     console.log(ui.cmd(cmd));
     console.log(ui.dim('Then rename the generated file to match your config name:'));
     console.log(ui.cmd(`mv ~/.config/gcloud/application_default_credentials.json ~/.config/gcloud/application_default_credentials_${account}.json`));
+  }
+
+  const gwsInstalled = await gws.isInstalled();
+  if (gwsInstalled) {
+    const gwsUpdated = await gws.updateCredentials(account);
+    if (gwsUpdated) {
+      console.log(ui.success('Google Workspace CLI credentials updated.'));
+    } else {
+      console.log(ui.warn(`⚠️  Warning: Google Workspace CLI credentials are missing for '${account}'.`));
+      console.log(ui.hint('Run the following command to generate them:'));
+      console.log(ui.cmd('gws auth login'));
+      console.log(ui.dim(`Then run ${ui.cmd(`gswitch new ${account}`)} to save them for future switches.`));
+    }
   }
 
   // Show Project Info
