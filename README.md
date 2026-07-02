@@ -45,6 +45,7 @@ gswitch new personal user@example.com
 gswitch new personal user@example.com --private
 gswitch new personal user@example.com --scopes=https://www.googleapis.com/auth/spreadsheets,https://www.googleapis.com/auth/cloud-platform
 gswitch new personal user@example.com --gmail --calendar --drive
+gswitch new personal user@example.com --gmail --drive --client-id-file=~/.config/gws/client_secret.json
 ```
 
 This guides you through the entire setup process:
@@ -70,6 +71,8 @@ Use the helper flags to add common Google Workspace permissions to both ADC and 
 When any helper flag is used, `gswitch` also includes the default Google Cloud ADC scope so the resulting ADC file still works for Google Cloud SDK workflows.
 
 If the `gws` command is installed, `gswitch new` runs `gws auth login` with identity scopes plus any requested helper or custom scopes, then saves any `~/.config/gws/credentials.enc` or `~/.config/gws/credentials.json` file under the configuration name. Later `gswitch <account>` calls restore those saved `gws` credentials when available. If `gws` is not installed, setup continues normally.
+
+Google blocks the default ADC OAuth client when you request Workspace scopes such as Drive, Gmail, Docs, Sheets, or Calendar. If you use those scopes, create a Desktop OAuth client in Google Cloud Console, enable the relevant APIs, and either save the downloaded JSON to `~/.config/gws/client_secret.json` or pass it with `--client-id-file`. `gswitch` uses that client for `gcloud auth application-default login`, and passes its client ID and secret to `gws auth login`.
 
 Running `gswitch new` on an existing configuration will refresh the credentials without recreating the configuration.
 

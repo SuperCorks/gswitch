@@ -18,6 +18,15 @@ export const LOGIN_SCOPE_GROUPS = Object.freeze({
   ]
 });
 
+const WORKSPACE_SCOPE_PREFIXES = Object.freeze([
+  'https://mail.google.com/',
+  'https://www.googleapis.com/auth/gmail.',
+  'https://www.googleapis.com/auth/calendar',
+  'https://www.googleapis.com/auth/drive',
+  'https://www.googleapis.com/auth/documents',
+  'https://www.googleapis.com/auth/spreadsheets'
+]);
+
 export function parseScopes(rawScopes) {
   if (!rawScopes) {
     return [];
@@ -64,4 +73,10 @@ export function resolveLoginScopes(options = {}) {
   }
 
   return mergeScopes(scopes);
+}
+
+export function usesWorkspaceScopes(rawScopes) {
+  return parseScopes(rawScopes).some(scope =>
+    WORKSPACE_SCOPE_PREFIXES.some(prefix => scope.startsWith(prefix))
+  );
 }

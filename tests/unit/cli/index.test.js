@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import fs from 'fs';
 import { createAccount } from '../../../src/cli/index.js';
 import { gcloud } from '../../../src/lib/gcloud.js';
 import { gws } from '../../../src/lib/gws.js';
@@ -67,16 +68,20 @@ describe('cli/createAccount', () => {
 
     const loginSpy = vi.spyOn(gcloud, 'login').mockResolvedValue(undefined);
     const loginAdcSpy = vi.spyOn(gcloud, 'loginAdc').mockResolvedValue(undefined);
+    vi.spyOn(fs, 'existsSync').mockReturnValue(true);
 
     await createAccount('peachy', 'hello@peachystudio.com', {
-      scopes: ' https://www.googleapis.com/auth/spreadsheets, https://www.googleapis.com/auth/cloud-platform '
+      scopes: ' https://www.googleapis.com/auth/spreadsheets, https://www.googleapis.com/auth/cloud-platform ',
+      clientIdFile: '/tmp/client_secret.json'
     });
 
     expect(loginSpy).toHaveBeenCalledWith('hello@peachystudio.com', {
-      scopes: 'https://www.googleapis.com/auth/spreadsheets,https://www.googleapis.com/auth/cloud-platform'
+      scopes: 'https://www.googleapis.com/auth/spreadsheets,https://www.googleapis.com/auth/cloud-platform',
+      clientIdFile: '/tmp/client_secret.json'
     });
     expect(loginAdcSpy).toHaveBeenCalledWith('hello@peachystudio.com', {
-      scopes: 'https://www.googleapis.com/auth/spreadsheets,https://www.googleapis.com/auth/cloud-platform'
+      scopes: 'https://www.googleapis.com/auth/spreadsheets,https://www.googleapis.com/auth/cloud-platform',
+      clientIdFile: '/tmp/client_secret.json'
     });
   });
 
@@ -91,11 +96,13 @@ describe('cli/createAccount', () => {
     const loginSpy = vi.spyOn(gcloud, 'login').mockResolvedValue(undefined);
     const loginAdcSpy = vi.spyOn(gcloud, 'loginAdc').mockResolvedValue(undefined);
     const gwsLoginSpy = vi.spyOn(gws, 'login').mockResolvedValue(false);
+    vi.spyOn(fs, 'existsSync').mockReturnValue(true);
 
     await createAccount('peachy', 'hello@peachystudio.com', {
       gmail: true,
       calendar: true,
-      drive: true
+      drive: true,
+      clientIdFile: '/tmp/client_secret.json'
     });
 
     const expectedScopes = [
@@ -109,18 +116,21 @@ describe('cli/createAccount', () => {
       gmail: true,
       calendar: true,
       drive: true,
+      clientIdFile: '/tmp/client_secret.json',
       scopes: expectedScopes
     });
     expect(loginAdcSpy).toHaveBeenCalledWith('hello@peachystudio.com', {
       gmail: true,
       calendar: true,
       drive: true,
+      clientIdFile: '/tmp/client_secret.json',
       scopes: expectedScopes
     });
     expect(gwsLoginSpy).toHaveBeenCalledWith({
       gmail: true,
       calendar: true,
       drive: true,
+      clientIdFile: '/tmp/client_secret.json',
       scopes: expectedScopes
     });
   });

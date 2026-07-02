@@ -23,6 +23,10 @@ export class GoogleWorkspace {
     return path.join(os.homedir(), '.config/gws');
   }
 
+  getDefaultClientIdFile() {
+    return path.join(this.getConfigDir(), 'client_secret.json');
+  }
+
   getCredentialPaths(account) {
     const configDir = this.getConfigDir();
 
@@ -56,8 +60,33 @@ export class GoogleWorkspace {
     const args = ['auth', 'login'];
     args.push(`--scopes=${mergeScopes(GWS_IDENTITY_SCOPES, options.scopes)}`);
 
-    await execa('gws', args, { stdio: 'inherit' });
+    const authEnv = await this.getAuthEnv(options);
+    const execaOptions = { stdio: 'inherit' };
+    if (authEnv) {
+      execaOptions.env = authEnv;
+    }
+
+    await execa('gws', args, execaOptions);
     return true;
+  }
+
+  async getAuthEnv(options = {}) {
+    if (!options.clientIdFile) {
+      return undefined;
+    }
+
+    const clientFile = JSON.parse(await fs.readFile(options.clientIdFile, 'utf8'));
+    const clientConfig = clientFile.installed || clientFile.web || clientFile;
+
+    if (!clientConfig.client_id || !clientConfig.client_secret) {
+      throw new Error(`Invalid OAuth client file: ${options.clientIdFile}`);
+    }
+
+    return {
+      ...process.env,
+      GOOGLE_WORKSPACE_CLI_CLIENT_ID: clientConfig.client_id,
+      GOOGLE_WORKSPACE_CLI_CLIENT_SECRET: clientConfig.client_secret
+    };
   }
 
   async saveCredentials(account) {

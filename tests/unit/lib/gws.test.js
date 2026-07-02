@@ -73,6 +73,36 @@ describe('lib/gws', () => {
     );
   });
 
+  it('passes OAuth client file credentials through environment variables', async () => {
+    vi.mocked(execaModule.execa)
+      .mockResolvedValueOnce({ exitCode: 0, failed: false })
+      .mockResolvedValueOnce({ stdout: '' });
+    vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify({
+      installed: {
+        client_id: 'client-id.apps.googleusercontent.com',
+        client_secret: 'client-secret'
+      }
+    }));
+
+    await expect(gws.login({
+      scopes: 'scope-a',
+      clientIdFile: '/tmp/client_secret.json'
+    })).resolves.toBe(true);
+
+    expect(execaModule.execa).toHaveBeenNthCalledWith(
+      2,
+      'gws',
+      ['auth', 'login', `--scopes=${[...GWS_IDENTITY_SCOPES, 'scope-a'].join(',')}`],
+      {
+        stdio: 'inherit',
+        env: expect.objectContaining({
+          GOOGLE_WORKSPACE_CLI_CLIENT_ID: 'client-id.apps.googleusercontent.com',
+          GOOGLE_WORKSPACE_CLI_CLIENT_SECRET: 'client-secret'
+        })
+      }
+    );
+  });
+
   it('skips login when gws is not installed', async () => {
     vi.mocked(execaModule.execa).mockRejectedValue(new Error('ENOENT'));
 

@@ -222,6 +222,10 @@ export class GCloud {
       args.push(`--scopes=${options.scopes}`);
     }
 
+    if (options.clientIdFile) {
+      args.push(`--client-id-file=${options.clientIdFile}`);
+    }
+
     return args;
   }
 

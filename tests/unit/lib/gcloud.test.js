@@ -249,6 +249,28 @@ describe('lib/gcloud', () => {
       );
     });
 
+    it('should include a client ID file in ADC login when provided', async () => {
+      vi.mocked(execaModule.execa).mockResolvedValue({ stdout: '' });
+
+      await gcloud.loginAdc('user@example.com', {
+        scopes: 'https://www.googleapis.com/auth/drive,https://www.googleapis.com/auth/cloud-platform',
+        clientIdFile: '/tmp/client_secret.json'
+      });
+
+      expect(execaModule.execa).toHaveBeenCalledWith(
+        'gcloud',
+        [
+          'auth',
+          'application-default',
+          'login',
+          '--account=user@example.com',
+          '--scopes=https://www.googleapis.com/auth/drive,https://www.googleapis.com/auth/cloud-platform',
+          '--client-id-file=/tmp/client_secret.json'
+        ],
+        { stdio: 'inherit' }
+      );
+    });
+
     it('should launch Chrome incognito for private login on macOS', async () => {
       vi.mocked(os.platform).mockReturnValue('darwin');
 

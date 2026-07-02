@@ -1,12 +1,13 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { ui } from '../lib/ui.js';
 import { gcloud } from '../lib/gcloud.js';
 import { gws } from '../lib/gws.js';
-import { resolveLoginScopes } from '../lib/oauthScopes.js';
+import { resolveLoginScopes, usesWorkspaceScopes } from '../lib/oauthScopes.js';
 import { select, input } from '@inquirer/prompts';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -58,6 +59,7 @@ ${chalk.bold('HOW TO ADD AN ACCOUNT')}
     .argument('[email]', 'Email address for the account')
     .option('--private', 'Open OAuth URLs in a Chrome incognito window')
     .option('--scopes <scopes>', 'Comma-separated OAuth scopes to pass to application-default login')
+    .option('--client-id-file <path>', 'Desktop OAuth client JSON for application-default and gws login')
     .option('--gmail', 'Add Gmail read/write scopes to application-default and gws login')
     .option('--calendar', 'Add Google Calendar read/write scopes to application-default and gws login')
     .option('--drive', 'Add Drive, Google Docs, and Google Sheets read/write scopes to application-default and gws login')
@@ -106,11 +108,6 @@ async function listConfigurations() {
 }
 
 export async function createAccount(name, email, options = {}) {
-    const normalizedOptions = {
-        ...options,
-        scopes: resolveLoginScopes(options)
-    };
-
     try {
         if (!name) {
             name = await input({ message: 'Enter new configuration name:' });
@@ -126,15 +123,23 @@ export async function createAccount(name, email, options = {}) {
         throw error;
     }
 
-    // Check if configuration already exists
-    const configExists = await gcloud.configurationExists(name);
-    if (configExists) {
-        console.log(ui.info(`\nConfiguration '${name}' already exists. Refreshing credentials for ${email}...\n`));
-    } else {
-        console.log(ui.info(`\nSetting up new configuration '${name}' for ${email}...\n`));
-    }
-
     try {
+        const scopes = resolveLoginScopes(options);
+        const clientIdFile = await resolveClientIdFile(options.clientIdFile, scopes);
+        const normalizedOptions = {
+            ...options,
+            scopes,
+            clientIdFile
+        };
+
+        // Check if configuration already exists
+        const configExists = await gcloud.configurationExists(name);
+        if (configExists) {
+            console.log(ui.info(`\nConfiguration '${name}' already exists. Refreshing credentials for ${email}...\n`));
+        } else {
+            console.log(ui.info(`\nSetting up new configuration '${name}' for ${email}...\n`));
+        }
+
         // 1. Create Configuration (only if it doesn't exist)
         if (!configExists) {
             console.log(ui.bold(`\n1. Creating configuration '${name}'...`));
@@ -199,6 +204,44 @@ export async function createAccount(name, email, options = {}) {
         console.error(ui.error(`\n❌ Failed to setup configuration: ${error.message}`));
         process.exit(1);
     }
+}
+
+async function resolveClientIdFile(rawClientIdFile, scopes) {
+    const requestedClientIdFile = rawClientIdFile ? expandHome(rawClientIdFile) : undefined;
+    if (requestedClientIdFile) {
+        if (!fs.existsSync(requestedClientIdFile)) {
+            throw new Error(`OAuth client ID file not found: ${requestedClientIdFile}`);
+        }
+
+        return requestedClientIdFile;
+    }
+
+    if (!usesWorkspaceScopes(scopes)) {
+        return undefined;
+    }
+
+    const defaultClientIdFile = gws.getDefaultClientIdFile();
+    if (fs.existsSync(defaultClientIdFile)) {
+        return defaultClientIdFile;
+    }
+
+    throw new Error(
+        `Workspace OAuth scopes require a Desktop OAuth client. ` +
+        `Create one in Google Cloud Console and save it to ${defaultClientIdFile}, ` +
+        `or pass --client-id-file <path>.`
+    );
+}
+
+function expandHome(filePath) {
+    if (filePath === '~') {
+        return os.homedir();
+    }
+
+    if (filePath.startsWith('~/')) {
+        return path.join(os.homedir(), filePath.slice(2));
+    }
+
+    return filePath;
 }
 
 async function selectProject() {
