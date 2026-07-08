@@ -54,7 +54,7 @@ This guides you through the entire setup process:
 - Log in with the selected account
 - Set up application default credentials
 - Save the ADC file under the configuration name for future switching
-- Log in to `gws` with the same OAuth client when a client file is available
+- Log in to `gws` with the same OAuth client
 - Save `gws` credentials under the configuration name for future switching
 - Re-activate the target configuration when setup completes
 - Restore the live ADC file so application-default commands work immediately
@@ -70,7 +70,7 @@ Use the helper flags to add common Google Workspace permissions to both ADC and 
 
 When any helper flag is used, `gswitch` also includes the default Google Cloud ADC scope so the resulting ADC file still works for Google Cloud SDK workflows.
 
-If the `gws` command is installed and an OAuth client file is available, `gswitch new` runs `gws auth login` with identity scopes plus any requested helper or custom scopes, then saves any `~/.config/gws/credentials.enc` or `~/.config/gws/credentials.json` file under the configuration name. Later `gswitch <account>` calls restore those saved `gws` credentials when available. If no OAuth client file is available, setup continues without running `gws auth login` so `gws` cannot fall back to unrelated local client credentials.
+If the `gws` command is installed, `gswitch new` runs `gws auth login` with the bundled production OAuth client, identity scopes, and any requested helper or custom scopes, then saves any `~/.config/gws/credentials.enc` or `~/.config/gws/credentials.json` file under the configuration name. Later `gswitch <account>` calls restore those saved `gws` credentials when available. If no OAuth client file is available, setup continues without running `gws auth login` so `gws` cannot fall back to unrelated local client credentials.
 
 Google blocks the default ADC OAuth client when you request Workspace scopes such as Drive, Gmail, Docs, Sheets, or Calendar. `gswitch` includes a production Desktop OAuth client ID for those flows and uses it automatically with `gcloud auth application-default login` and `gws auth login`. The bundled file does not contain a client secret.
 

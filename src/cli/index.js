@@ -222,12 +222,12 @@ async function resolveClientIdFile(rawClientIdFile, scopes) {
         return requestedClientIdFile;
     }
 
-    if (!usesWorkspaceScopes(scopes)) {
-        return undefined;
-    }
-
     if (fs.existsSync(productionGoogleOAuthClientFile)) {
         return productionGoogleOAuthClientFile;
+    }
+
+    if (!usesWorkspaceScopes(scopes)) {
+        return undefined;
     }
 
     throw new Error(
