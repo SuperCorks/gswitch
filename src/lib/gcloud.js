@@ -216,7 +216,7 @@ export class GCloud {
   }
 
   buildAuthArgs(baseArgs, email, options = {}) {
-    const args = [...baseArgs, `--account=${email}`];
+    const args = [...baseArgs, email];
 
     if (options.scopes) {
       args.push(`--scopes=${options.scopes}`);

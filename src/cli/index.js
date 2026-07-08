@@ -366,12 +366,9 @@ async function switchAccount(account) {
     console.log(ui.warn(`⚠️  Warning: Application-default credentials file is missing for '${account}'.`));
     console.log(ui.hint('Run the following command to generate it:'));
     
-    // Attempt to get the account email to make the hint more accurate, or just show the generic command
-    // The bash script does: gcloud auth application-default login --account=$(gcloud config get-value account)
-    // We can just show that literally or pre-evaluate it.
-    // Let's pre-evaluate it for better UX.
+    // Attempt to get the account email to make the hint more accurate.
     const currentAccountEmail = await gcloud.getCurrentAccount();
-    const cmd = `gcloud auth application-default login${currentAccountEmail ? ` --account=${currentAccountEmail}` : ''}`;
+    const cmd = `gcloud auth application-default login${currentAccountEmail ? ` ${currentAccountEmail}` : ''}`;
     
     console.log(ui.cmd(cmd));
     console.log(ui.dim('Then rename the generated file to match your config name:'));

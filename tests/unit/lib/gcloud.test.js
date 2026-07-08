@@ -206,7 +206,7 @@ describe('lib/gcloud', () => {
 
       expect(execaModule.execa).toHaveBeenCalledWith(
         'gcloud',
-        ['auth', 'login', '--account=user@example.com'],
+        ['auth', 'login', 'user@example.com'],
         { stdio: 'inherit' }
       );
     });
@@ -223,7 +223,7 @@ describe('lib/gcloud', () => {
         [
           'auth',
           'login',
-          '--account=user@example.com'
+          'user@example.com'
         ],
         { stdio: 'inherit' }
       );
@@ -242,7 +242,7 @@ describe('lib/gcloud', () => {
           'auth',
           'application-default',
           'login',
-          '--account=user@example.com',
+          'user@example.com',
           '--scopes=https://www.googleapis.com/auth/spreadsheets,https://www.googleapis.com/auth/cloud-platform'
         ],
         { stdio: 'inherit' }
@@ -263,7 +263,7 @@ describe('lib/gcloud', () => {
           'auth',
           'application-default',
           'login',
-          '--account=user@example.com',
+          'user@example.com',
           '--scopes=https://www.googleapis.com/auth/drive,https://www.googleapis.com/auth/cloud-platform',
           '--client-id-file=/tmp/client_secret.json'
         ],
@@ -298,7 +298,7 @@ describe('lib/gcloud', () => {
       expect(execaModule.execa).toHaveBeenNthCalledWith(
         1,
         'gcloud',
-        ['auth', 'login', '--account=user@example.com', '--no-launch-browser'],
+        ['auth', 'login', 'user@example.com', '--no-launch-browser'],
         {
           stdin: 'inherit',
           stdout: 'pipe',
