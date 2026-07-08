@@ -190,6 +190,56 @@ describe('lib/gws', () => {
     );
   });
 
+  it('passes OAuth client IDs through environment variables without requiring a secret', async () => {
+    vi.mocked(execaModule.execa)
+      .mockResolvedValueOnce({ exitCode: 0, failed: false })
+      .mockResolvedValueOnce({ stdout: '' });
+    vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify({
+      installed: {
+        client_id: 'client-id.apps.googleusercontent.com'
+      }
+    }));
+
+    await expect(gws.login({
+      scopes: 'scope-a',
+      clientIdFile: '/tmp/client_id.json'
+    })).resolves.toBe(true);
+
+    expect(execaModule.execa).toHaveBeenNthCalledWith(
+      2,
+      'gws',
+      ['auth', 'login', `--scopes=${[...GWS_IDENTITY_SCOPES, 'scope-a'].join(',')}`],
+      {
+        stdin: 'inherit',
+        stdout: 'pipe',
+        stderr: 'pipe',
+        env: expect.objectContaining({
+          GOOGLE_WORKSPACE_CLI_CLIENT_ID: 'client-id.apps.googleusercontent.com'
+        })
+      }
+    );
+    expect(execaModule.execa.mock.calls[1][2].env).not.toHaveProperty('GOOGLE_WORKSPACE_CLI_CLIENT_SECRET');
+  });
+
+  it('detects whether an OAuth client file contains a secret', async () => {
+    vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify({
+      installed: {
+        client_id: 'client-id.apps.googleusercontent.com',
+        client_secret: 'client-secret'
+      }
+    }));
+
+    await expect(gws.hasClientSecret('/tmp/client_secret.json')).resolves.toBe(true);
+
+    vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify({
+      installed: {
+        client_id: 'client-id.apps.googleusercontent.com'
+      }
+    }));
+
+    await expect(gws.hasClientSecret('/tmp/client_id.json')).resolves.toBe(false);
+  });
+
   it('skips login when gws is not installed', async () => {
     vi.mocked(execaModule.execa).mockRejectedValue(new Error('ENOENT'));
 

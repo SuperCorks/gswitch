@@ -180,15 +180,27 @@ export class GoogleWorkspace {
     const clientFile = JSON.parse(await fs.readFile(options.clientIdFile, 'utf8'));
     const clientConfig = clientFile.installed || clientFile.web || clientFile;
 
-    if (!clientConfig.client_id || !clientConfig.client_secret) {
+    if (!clientConfig.client_id) {
       throw new Error(`Invalid OAuth client file: ${options.clientIdFile}`);
     }
 
-    return {
+    const authEnv = {
       ...process.env,
-      GOOGLE_WORKSPACE_CLI_CLIENT_ID: clientConfig.client_id,
-      GOOGLE_WORKSPACE_CLI_CLIENT_SECRET: clientConfig.client_secret
+      GOOGLE_WORKSPACE_CLI_CLIENT_ID: clientConfig.client_id
     };
+
+    if (clientConfig.client_secret) {
+      authEnv.GOOGLE_WORKSPACE_CLI_CLIENT_SECRET = clientConfig.client_secret;
+    }
+
+    return authEnv;
+  }
+
+  async hasClientSecret(clientIdFile) {
+    const clientFile = JSON.parse(await fs.readFile(clientIdFile, 'utf8'));
+    const clientConfig = clientFile.installed || clientFile.web || clientFile;
+
+    return Boolean(clientConfig.client_secret);
   }
 
   async saveCredentials(account) {

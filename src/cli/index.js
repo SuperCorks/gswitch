@@ -16,6 +16,7 @@ const __dirname = path.dirname(__filename);
 // Read package.json
 const pkgPath = path.join(__dirname, '../../package.json');
 const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+const productionGoogleOAuthClientFile = path.join(__dirname, '../config/google-oauth-client.json');
 
 function isUserCancellation(error) {
   // Check by error name since ExitPromptError may not be directly importable
@@ -171,16 +172,21 @@ export async function createAccount(name, email, options = {}) {
         // 7. Login gws when it is available, then snapshot its global credential slot.
         console.log(ui.bold('\n7. Setting up Google Workspace CLI (gws)...'));
         console.log(ui.dim(`Use ${email} in the browser consent flow if prompted.`));
-        const gwsLoggedIn = await gws.login(normalizedOptions);
-        if (gwsLoggedIn) {
-            const gwsSaved = await gws.saveCredentials(name);
-            if (gwsSaved) {
-                console.log(ui.success('Google Workspace CLI credentials saved.'));
-            } else {
-                console.log(ui.warn('gws login completed, but no credential file was found to save.'));
-            }
+        const gwsCanUseAuthClient = !clientIdFile || await gws.hasClientSecret(clientIdFile);
+        if (usesWorkspaceScopes(scopes) && !gwsCanUseAuthClient) {
+            console.log(ui.dim('Using the Workspace-scoped ADC file for gws; skipping separate gws auth login because the OAuth client has no client secret.'));
         } else {
-            console.log(ui.dim('gws is not installed, skipping Google Workspace CLI login.'));
+            const gwsLoggedIn = await gws.login(normalizedOptions);
+            if (gwsLoggedIn) {
+                const gwsSaved = await gws.saveCredentials(name);
+                if (gwsSaved) {
+                    console.log(ui.success('Google Workspace CLI credentials saved.'));
+                } else {
+                    console.log(ui.warn('gws login completed, but no credential file was found to save.'));
+                }
+            } else {
+                console.log(ui.dim('gws is not installed, skipping Google Workspace CLI login.'));
+            }
         }
 
         // 8. Re-activate the target config in case auth commands changed it.
@@ -220,14 +226,12 @@ async function resolveClientIdFile(rawClientIdFile, scopes) {
         return undefined;
     }
 
-    const defaultClientIdFile = gws.getDefaultClientIdFile();
-    if (fs.existsSync(defaultClientIdFile)) {
-        return defaultClientIdFile;
+    if (fs.existsSync(productionGoogleOAuthClientFile)) {
+        return productionGoogleOAuthClientFile;
     }
 
     throw new Error(
-        `Workspace OAuth scopes require a Desktop OAuth client. ` +
-        `Create one in Google Cloud Console and save it to ${defaultClientIdFile}, ` +
+        `Workspace OAuth scopes require a Desktop OAuth client. The bundled production client was not found. ` +
         `or pass --client-id-file <path>.`
     );
 }
