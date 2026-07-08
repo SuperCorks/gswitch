@@ -136,7 +136,7 @@ describe('cli/createAccount', () => {
     });
   });
 
-  it('uses the bundled production OAuth client for Workspace scopes by default', async () => {
+  it('passes the bundled production OAuth client to Workspace auth flows by default', async () => {
     vi.spyOn(gcloud, 'configurationExists').mockResolvedValue(false);
     vi.spyOn(gcloud, 'createConfiguration').mockResolvedValue(undefined);
     vi.spyOn(gcloud, 'activateConfiguration').mockResolvedValue(undefined);
@@ -147,16 +147,37 @@ describe('cli/createAccount', () => {
 
     const loginAdcSpy = vi.spyOn(gcloud, 'loginAdc').mockResolvedValue(undefined);
     const gwsLoginSpy = vi.spyOn(gws, 'login').mockResolvedValue(false);
-    vi.spyOn(gws, 'hasClientSecret').mockResolvedValue(false);
 
     await createAccount('peachy', 'hello@peachystudio.com', {
       drive: true
     });
 
+    const expectedClientIdFile = expect.stringMatching(/src\/config\/google-oauth-client\.json$/);
     expect(loginAdcSpy).toHaveBeenCalledWith('hello@peachystudio.com', expect.objectContaining({
-      clientIdFile: expect.stringMatching(/src\/config\/google-oauth-client\.json$/)
+      clientIdFile: expectedClientIdFile
     }));
+    expect(gwsLoginSpy).toHaveBeenCalledWith(expect.objectContaining({
+      clientIdFile: expectedClientIdFile
+    }));
+  });
+
+  it('does not run gws login without an explicit OAuth client file', async () => {
+    vi.spyOn(gcloud, 'configurationExists').mockResolvedValue(false);
+    vi.spyOn(gcloud, 'createConfiguration').mockResolvedValue(undefined);
+    vi.spyOn(gcloud, 'activateConfiguration').mockResolvedValue(undefined);
+    vi.spyOn(gcloud, 'login').mockResolvedValue(undefined);
+    vi.spyOn(gcloud, 'setAccount').mockResolvedValue(undefined);
+    vi.spyOn(gcloud, 'loginAdc').mockResolvedValue(undefined);
+    vi.spyOn(gcloud, 'saveAdc').mockResolvedValue(undefined);
+    vi.spyOn(gcloud, 'updateAdc').mockResolvedValue(true);
+
+    const gwsLoginSpy = vi.spyOn(gws, 'login').mockResolvedValue(true);
+    const saveCredentialsSpy = vi.spyOn(gws, 'saveCredentials').mockResolvedValue(true);
+
+    await createAccount('peachy', 'hello@peachystudio.com');
+
     expect(gwsLoginSpy).not.toHaveBeenCalled();
+    expect(saveCredentialsSpy).not.toHaveBeenCalled();
   });
 
   it('saves gws credentials after gws login succeeds', async () => {
@@ -171,8 +192,11 @@ describe('cli/createAccount', () => {
 
     vi.spyOn(gws, 'login').mockResolvedValue(true);
     const saveCredentialsSpy = vi.spyOn(gws, 'saveCredentials').mockResolvedValue(true);
+    vi.spyOn(fs, 'existsSync').mockReturnValue(true);
 
-    await createAccount('peachy', 'hello@peachystudio.com');
+    await createAccount('peachy', 'hello@peachystudio.com', {
+      clientIdFile: '/tmp/client_secret.json'
+    });
 
     expect(saveCredentialsSpy).toHaveBeenCalledWith('peachy');
   });

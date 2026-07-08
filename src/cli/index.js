@@ -172,9 +172,9 @@ export async function createAccount(name, email, options = {}) {
         // 7. Login gws when it is available, then snapshot its global credential slot.
         console.log(ui.bold('\n7. Setting up Google Workspace CLI (gws)...'));
         console.log(ui.dim(`Use ${email} in the browser consent flow if prompted.`));
-        const gwsCanUseAuthClient = !clientIdFile || await gws.hasClientSecret(clientIdFile);
-        if (usesWorkspaceScopes(scopes) && !gwsCanUseAuthClient) {
-            console.log(ui.dim('Using the Workspace-scoped ADC file for gws; skipping separate gws auth login because the OAuth client has no client secret.'));
+        const gwsCanUseAuthClient = Boolean(clientIdFile);
+        if (!gwsCanUseAuthClient) {
+            console.log(ui.dim('Skipping separate gws auth login because no explicit OAuth client file was provided.'));
         } else {
             const gwsLoggedIn = await gws.login(normalizedOptions);
             if (gwsLoggedIn) {
