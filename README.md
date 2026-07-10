@@ -98,9 +98,11 @@ If `gws` is installed, `gswitch new` marks the profile to use its ADC directly. 
 
 Profiles imported from older `gswitch` versions retain their dedicated encrypted `gws` credential for compatibility and rollback. Refreshing one with `gswitch new <name> <email> --gmail --calendar --drive` consolidates it onto the new shared ADC model without deleting the encrypted profile copy.
 
-Google blocks the default ADC OAuth client when you request Workspace scopes such as Drive, Gmail, Docs, Sheets, or Calendar. For these scopes, `gswitch` requires a Desktop OAuth client containing `client_secret` at `~/.config/gswitch/google-oauth-client.json` or via `--client-id-file`. The secretless bundled client is not accepted for Workspace ADC flows.
+Google blocks the default ADC OAuth client when you request Workspace scopes such as Drive, Gmail, Docs, Sheets, or Calendar. For standalone installs, `gswitch` temporarily bundles the verified GTM Manager Desktop OAuth client, including the installed-app `client_secret` required by `gcloud auth application-default login`. This fallback will be replaced by the dedicated `gswitch` client after Google verifies it.
 
-If you need to use a different OAuth client, pass a Desktop client JSON with `--client-id-file`. The resulting ADC contains the client information and refresh token needed by both Google client libraries and `gws`.
+`gswitch` still prefers `~/.config/gswitch/google-oauth-client.json` when present. To use a different OAuth client explicitly, pass a Desktop client JSON with `--client-id-file`. The resulting ADC contains the client information and refresh token needed by both Google client libraries and `gws`.
+
+Desktop OAuth client configuration is distributed app identity, not a user credential. The package never includes user access tokens, refresh tokens, ADC files, or `gws` credentials.
 
 Running `gswitch new` on an existing configuration will refresh the credentials without recreating the configuration.
 
