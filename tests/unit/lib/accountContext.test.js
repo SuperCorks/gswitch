@@ -7,23 +7,36 @@ import { profiles } from '../../../src/lib/profiles.js';
 vi.mock('execa');
 
 describe('lib/accountContext', () => {
+  const inheritedSelectors = [
+    'CLOUDSDK_AUTH_ACCESS_TOKEN',
+    'CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE',
+    'CLOUDSDK_CORE_ACCOUNT',
+    'CLOUDSDK_CORE_PROJECT',
+    'GCLOUD_PROJECT',
+    'GOOGLE_CLOUD_PROJECT',
+    'GOOGLE_CLOUD_QUOTA_PROJECT',
+    'GOOGLE_OAUTH_ACCESS_TOKEN',
+    'GOOGLE_WORKSPACE_CLI_CLIENT_ID',
+    'GOOGLE_WORKSPACE_CLI_CLIENT_SECRET',
+    'GOOGLE_WORKSPACE_CLI_TOKEN',
+    'GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE'
+  ];
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
-    delete process.env.GOOGLE_WORKSPACE_CLI_TOKEN;
-    delete process.env.GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE;
-    delete process.env.CLOUDSDK_CORE_ACCOUNT;
-    delete process.env.CLOUDSDK_CORE_PROJECT;
+    for (const selector of inheritedSelectors) {
+      delete process.env[selector];
+    }
   });
 
   it('runs commands with a scoped account environment and preserves arguments', async () => {
-    process.env.GOOGLE_WORKSPACE_CLI_TOKEN = 'stale-parent-token';
-    process.env.GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE = '/wrong/account.json';
-    process.env.CLOUDSDK_CORE_ACCOUNT = 'wrong@example.com';
-    process.env.CLOUDSDK_CORE_PROJECT = 'wrong-project';
+    for (const selector of inheritedSelectors) {
+      process.env[selector] = `wrong-${selector}`;
+    }
     vi.spyOn(gcloud, 'configurationExists').mockResolvedValue(true);
     vi.spyOn(profiles, 'getScopedEnvironment').mockResolvedValue({
       GSWITCH_PROFILE: 'rk',
@@ -39,6 +52,7 @@ describe('lib/accountContext', () => {
       'gws',
       ['auth', 'status'],
       expect.objectContaining({
+        extendEnv: false,
         stdio: 'inherit',
         reject: false,
         env: expect.objectContaining({
@@ -48,10 +62,9 @@ describe('lib/accountContext', () => {
         })
       })
     );
-    expect(execaModule.execa.mock.calls[0][2].env).not.toHaveProperty('GOOGLE_WORKSPACE_CLI_TOKEN');
-    expect(execaModule.execa.mock.calls[0][2].env).not.toHaveProperty('GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE');
-    expect(execaModule.execa.mock.calls[0][2].env).not.toHaveProperty('CLOUDSDK_CORE_ACCOUNT');
-    expect(execaModule.execa.mock.calls[0][2].env).not.toHaveProperty('CLOUDSDK_CORE_PROJECT');
+    for (const selector of inheritedSelectors) {
+      expect(execaModule.execa.mock.calls[0][2].env).not.toHaveProperty(selector);
+    }
   });
 
   it('rejects unknown configurations before launching a command', async () => {
@@ -79,10 +92,28 @@ describe('lib/accountContext', () => {
       process.env.SHELL || '/bin/sh',
       ['-i'],
       expect.objectContaining({
+        extendEnv: false,
         stdio: 'inherit',
         reject: false,
         env: expect.objectContaining({ GSWITCH_PROFILE: 'sim' })
       })
     );
+  });
+
+  it('prints spawn failures and returns the command-not-found exit code', async () => {
+    vi.spyOn(gcloud, 'configurationExists').mockResolvedValue(true);
+    vi.spyOn(profiles, 'getScopedEnvironment').mockResolvedValue({
+      GSWITCH_PROFILE: 'rk'
+    });
+    vi.mocked(execaModule.execa).mockResolvedValue({
+      failed: true,
+      exitCode: undefined,
+      signal: undefined,
+      shortMessage: 'Command failed with ENOENT: missing-command'
+    });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(accountContext.run('rk', ['missing-command'])).resolves.toBe(127);
+    expect(errorSpy).toHaveBeenCalledWith('Command failed with ENOENT: missing-command');
   });
 });

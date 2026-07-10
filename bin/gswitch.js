@@ -3,6 +3,6 @@
 import { run } from '../src/cli/index.js';
 
 run().catch(err => {
-  console.error(err);
-  process.exit(1);
+  console.error(err instanceof Error ? err.message : err);
+  process.exitCode = 1;
 });

@@ -97,7 +97,7 @@ ${chalk.bold('HOW TO ADD AN ACCOUNT')}
     .description('List all available gcloud configurations')
     .action(listConfigurations);
 
-  program.parse(process.argv);
+  await program.parseAsync(process.argv);
 }
 
 async function listConfigurations() {
@@ -239,11 +239,18 @@ export async function openAccountShell(account) {
     return accountContext.shell(account);
 }
 
-async function resolveClientIdFile(rawClientIdFile, scopes) {
+export async function resolveClientIdFile(rawClientIdFile, scopes) {
     const requestedClientIdFile = rawClientIdFile ? expandHome(rawClientIdFile) : undefined;
     if (requestedClientIdFile) {
         if (!fs.existsSync(requestedClientIdFile)) {
             throw new Error(`OAuth client ID file not found: ${requestedClientIdFile}`);
+        }
+
+        if (usesWorkspaceScopes(scopes) && !(await gws.hasClientSecret(requestedClientIdFile))) {
+            throw new Error(
+                `Workspace OAuth scopes require a Desktop OAuth client JSON containing client_secret: ` +
+                requestedClientIdFile
+            );
         }
 
         return requestedClientIdFile;
@@ -255,7 +262,11 @@ async function resolveClientIdFile(rawClientIdFile, scopes) {
     ];
 
     for (const clientIdFile of defaultClientIdFiles) {
-        if (fs.existsSync(clientIdFile)) {
+        if (!fs.existsSync(clientIdFile)) {
+            continue;
+        }
+
+        if (!usesWorkspaceScopes(scopes) || (await gws.hasClientSecret(clientIdFile))) {
             return clientIdFile;
         }
     }
@@ -265,8 +276,8 @@ async function resolveClientIdFile(rawClientIdFile, scopes) {
     }
 
     throw new Error(
-        `Workspace OAuth scopes require a Desktop OAuth client. The bundled production client was not found. ` +
-        `or pass --client-id-file <path>.`
+        `Workspace OAuth scopes require a Desktop OAuth client JSON containing client_secret. ` +
+        `Install it at ${localGoogleOAuthClientFile} or pass --client-id-file <path>.`
     );
 }
 
@@ -398,15 +409,10 @@ async function switchAccount(account) {
   const adcUpdated = await gcloud.updateAdc(account);
   if (!adcUpdated) {
     console.log(ui.warn(`⚠️  Warning: Application-default credentials file is missing for '${account}'.`));
-    console.log(ui.hint('Run the following command to generate it:'));
-    
-    // Attempt to get the account email to make the hint more accurate.
+    console.log(ui.hint('Refresh the account profile:'));
     const currentAccountEmail = await gcloud.getCurrentAccount();
-    const cmd = `gcloud auth application-default login${currentAccountEmail ? ` ${currentAccountEmail}` : ''}`;
-    
-    console.log(ui.cmd(cmd));
-    console.log(ui.dim('Then rename the generated file to match your config name:'));
-    console.log(ui.cmd(`mv ~/.config/gcloud/application_default_credentials.json ~/.config/gcloud/application_default_credentials_${account}.json`));
+    console.log(ui.cmd(`gswitch new ${account}${currentAccountEmail ? ` ${currentAccountEmail}` : ''}`));
+    console.log(ui.dim('Add only the --gmail, --calendar, and --drive flags this profile needs.'));
   }
 
   const gwsInstalled = await gws.isInstalled();
@@ -416,9 +422,12 @@ async function switchAccount(account) {
       console.log(ui.success('Google Workspace CLI credentials updated.'));
     } else {
       console.log(ui.warn(`⚠️  Warning: Google Workspace CLI credentials are missing for '${account}'.`));
-      console.log(ui.hint('Run the following command to generate them:'));
-      console.log(ui.cmd('gws auth login'));
-      console.log(ui.dim(`Then run ${ui.cmd(`gswitch new ${account}`)} to save them for future switches.`));
+      console.log(ui.hint('Refresh the shared account credential:'));
+      const currentAccountEmail = await gcloud.getCurrentAccount();
+      console.log(ui.cmd(
+        `gswitch new ${account}${currentAccountEmail ? ` ${currentAccountEmail}` : ''} --gmail --calendar --drive`
+      ));
+      console.log(ui.dim('Remove any Workspace scope flags the profile does not need.'));
     }
   }
 

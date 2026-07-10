@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
-import { createAccount } from '../../../src/cli/index.js';
+import { createAccount, resolveClientIdFile, run } from '../../../src/cli/index.js';
 import { gcloud } from '../../../src/lib/gcloud.js';
 import { gws } from '../../../src/lib/gws.js';
+import { accountContext } from '../../../src/lib/accountContext.js';
 import {
   GCLOUD_ADC_IDENTITY_SCOPES,
   GCLOUD_ADC_SCOPE,
@@ -14,10 +15,7 @@ describe('cli/createAccount', () => {
     vi.spyOn(console, 'log').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.spyOn(gws, 'isInstalled').mockResolvedValue(false);
-    vi.spyOn(gws, 'login').mockResolvedValue(false);
-    vi.spyOn(gws, 'saveCredentials').mockResolvedValue(false);
     vi.spyOn(gws, 'hasClientSecret').mockResolvedValue(true);
-    vi.spyOn(gws, 'installClientConfig').mockResolvedValue(false);
     vi.spyOn(gws, 'useAdcCredentials').mockResolvedValue(true);
     vi.spyOn(gws, 'updateCredentials').mockResolvedValue(true);
   });
@@ -161,7 +159,6 @@ describe('cli/createAccount', () => {
       clientIdFile: '/tmp/client_secret.json',
       scopes: expectedScopes
     });
-    expect(gws.login).not.toHaveBeenCalled();
   });
 
   it('prefers the local production OAuth client to auth flows by default', async () => {
@@ -185,7 +182,6 @@ describe('cli/createAccount', () => {
     expect(loginAdcSpy).toHaveBeenCalledWith('hello@peachystudio.com', expect.objectContaining({
       clientIdFile: expectedClientIdFile
     }));
-    expect(gws.login).not.toHaveBeenCalled();
   });
 
   it('falls back to the bundled production OAuth client by default', async () => {
@@ -209,7 +205,6 @@ describe('cli/createAccount', () => {
     expect(loginAdcSpy).toHaveBeenCalledWith('hello@peachystudio.com', expect.objectContaining({
       clientIdFile: expectedClientIdFile
     }));
-    expect(gws.login).not.toHaveBeenCalled();
   });
 
   it('passes the local production OAuth client to the shared ADC flow by default', async () => {
@@ -235,7 +230,6 @@ describe('cli/createAccount', () => {
     expect(loginAdcSpy).toHaveBeenCalledWith('hello@peachystudio.com', expect.objectContaining({
       clientIdFile: expectedClientIdFile
     }));
-    expect(gws.login).not.toHaveBeenCalled();
   });
 
   it('configures gws to reuse the saved ADC', async () => {
@@ -261,6 +255,57 @@ describe('cli/createAccount', () => {
       '/profiles/peachy/adc.json'
     );
     expect(gws.updateCredentials).toHaveBeenCalledWith('peachy');
-    expect(gws.login).not.toHaveBeenCalled();
+  });
+});
+
+describe('cli OAuth client resolution', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('rejects secretless default clients for Workspace scopes', async () => {
+    vi.spyOn(fs, 'existsSync').mockReturnValue(true);
+    vi.spyOn(gws, 'hasClientSecret').mockResolvedValue(false);
+
+    await expect(resolveClientIdFile(undefined, LOGIN_SCOPE_GROUPS.drive[0])).rejects.toThrow(
+      'Workspace OAuth scopes require a Desktop OAuth client JSON containing client_secret'
+    );
+  });
+
+  it('rejects an explicitly selected secretless client for Workspace scopes', async () => {
+    vi.spyOn(fs, 'existsSync').mockReturnValue(true);
+    vi.spyOn(gws, 'hasClientSecret').mockResolvedValue(false);
+
+    await expect(
+      resolveClientIdFile('/tmp/client.json', LOGIN_SCOPE_GROUPS.gmail[0])
+    ).rejects.toThrow('/tmp/client.json');
+  });
+});
+
+describe('cli run command', () => {
+  const originalArgv = process.argv;
+  const originalExitCode = process.exitCode;
+
+  afterEach(() => {
+    process.argv = originalArgv;
+    process.exitCode = originalExitCode;
+    vi.restoreAllMocks();
+  });
+
+  it('awaits variadic run commands and preserves flags after --', async () => {
+    const runSpy = vi.spyOn(accountContext, 'run').mockResolvedValue(7);
+    process.argv = ['node', 'gswitch', 'run', 'rk', '--', 'cmd', '--flag'];
+
+    await run();
+
+    expect(runSpy).toHaveBeenCalledWith('rk', ['cmd', '--flag']);
+    expect(process.exitCode).toBe(7);
+  });
+
+  it('propagates async action errors to the binary entry point', async () => {
+    vi.spyOn(accountContext, 'run').mockRejectedValue(new Error('missing profile'));
+    process.argv = ['node', 'gswitch', 'run', 'missing', '--', 'true'];
+
+    await expect(run()).rejects.toThrow('missing profile');
   });
 });

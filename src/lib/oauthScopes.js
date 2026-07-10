@@ -5,14 +5,6 @@ export const GCLOUD_ADC_IDENTITY_SCOPES = Object.freeze([
   'https://www.googleapis.com/auth/userinfo.email'
 ]);
 
-export const GWS_IDENTITY_SCOPES = Object.freeze([
-  'openid',
-  'email',
-  'profile',
-  'https://www.googleapis.com/auth/userinfo.email',
-  'https://www.googleapis.com/auth/userinfo.profile'
-]);
-
 export const LOGIN_SCOPE_GROUPS = Object.freeze({
   gmail: ['https://www.googleapis.com/auth/gmail.modify'],
   calendar: ['https://www.googleapis.com/auth/calendar'],

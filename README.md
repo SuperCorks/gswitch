@@ -94,11 +94,11 @@ Use the helper flags to add common Google Workspace permissions to the shared AD
 
 When any helper flag is used, `gswitch` also includes the default Google Cloud ADC scope so the resulting ADC file still works for Google Cloud SDK workflows.
 
-If `gws` is installed, `gswitch new` stores the ADC as that profile's `gws` credential. This avoids a third browser login and keeps Google Cloud libraries and Workspace commands on the same account and scope grant.
+If `gws` is installed, `gswitch new` marks the profile to use its ADC directly. Scoped commands point `gws` at `adc.json` instead of duplicating the credential. This avoids a third browser login and keeps Google Cloud libraries and Workspace commands on the same account and scope grant.
 
-Profiles imported from older `gswitch` versions retain their dedicated encrypted `gws` credential for compatibility. Refreshing one with `gswitch new <name> <email> --gmail --calendar --drive` consolidates it onto the new shared ADC model.
+Profiles imported from older `gswitch` versions retain their dedicated encrypted `gws` credential for compatibility and rollback. Refreshing one with `gswitch new <name> <email> --gmail --calendar --drive` consolidates it onto the new shared ADC model without deleting the encrypted profile copy.
 
-Google blocks the default ADC OAuth client when you request Workspace scopes such as Drive, Gmail, Docs, Sheets, or Calendar. `gswitch` first looks for a production Desktop OAuth client at `~/.config/gswitch/google-oauth-client.json`, then falls back to the bundled production client. The client file must contain the Desktop OAuth client secret required by `gcloud auth application-default login`.
+Google blocks the default ADC OAuth client when you request Workspace scopes such as Drive, Gmail, Docs, Sheets, or Calendar. For these scopes, `gswitch` requires a Desktop OAuth client containing `client_secret` at `~/.config/gswitch/google-oauth-client.json` or via `--client-id-file`. The secretless bundled client is not accepted for Workspace ADC flows.
 
 If you need to use a different OAuth client, pass a Desktop client JSON with `--client-id-file`. The resulting ADC contains the client information and refresh token needed by both Google client libraries and `gws`.
 
@@ -118,7 +118,9 @@ Account profiles live under `~/.config/gswitch/profiles/<name>/`. Existing ADC a
 When you switch accounts globally, `gswitch` automatically:
 1. Activates the specified gcloud configuration
 2. Restores the profile ADC to the standard `application_default_credentials.json` location
-3. Restores the profile's `gws` credential and clears its stale token cache
+3. Points the global `gws` slot at shared ADC or restores a legacy encrypted `gws` credential
 4. Displays the current project and suggests `gswitch project` to change it
 
 `gswitch run` and `gswitch shell` leave all three global slots untouched and select the profile only through child-process environment variables.
+
+ADC is an OAuth refresh-token credential stored as plaintext JSON with file mode `600`. Scoped mode reads the profile ADC directly. Global compatibility mode also copies it to `~/.config/gws/credentials.json` so bare `gws` commands work outside an isolated shell. While shared ADC is active, `gswitch` moves a legacy global `client_secret.json` to `client_secret.json.gswitch-disabled` so it cannot override the ADC quota project; switching to a legacy encrypted profile restores it. Encrypted legacy profile credentials remain available as rollback data.

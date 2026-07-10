@@ -16,6 +16,7 @@ describe('lib/profiles', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.resetAllMocks();
   });
 
@@ -51,13 +52,47 @@ describe('lib/profiles', () => {
   });
 
   it('does not re-import legacy gws credentials after ADC consolidation', async () => {
-    vi.mocked(fs.access)
-      .mockRejectedValueOnce(new Error('ENOENT'))
-      .mockResolvedValueOnce(undefined);
+    vi.mocked(fs.access).mockResolvedValueOnce(undefined);
 
     await profiles.migrateLegacyGwsCredentials('rk');
 
     expect(fs.copyFile).not.toHaveBeenCalled();
+  });
+
+  it('marks ADC reuse without deleting encrypted rollback credentials', async () => {
+    vi.mocked(fs.writeFile).mockResolvedValue(undefined);
+    vi.mocked(fs.chmod).mockResolvedValue(undefined);
+    vi.mocked(fs.rm).mockResolvedValue(undefined);
+
+    await profiles.markGwsUsesAdc('rk');
+
+    expect(fs.writeFile).toHaveBeenCalledWith(
+      path.join(mockHome, '.config/gswitch/profiles/rk/gws/use-adc'),
+      'ADC\n',
+      { mode: 0o600 }
+    );
+    expect(fs.rm).toHaveBeenCalledWith(
+      path.join(mockHome, '.config/gswitch/profiles/rk/gws/credentials.json'),
+      { force: true }
+    );
+    expect(fs.rm).not.toHaveBeenCalledWith(
+      path.join(mockHome, '.config/gswitch/profiles/rk/gws/credentials.enc'),
+      expect.anything()
+    );
+  });
+
+  it('uses dedicated legacy gws credentials when no ADC marker exists', async () => {
+    vi.spyOn(profiles, 'ensureAdc').mockResolvedValue('/profiles/sim/adc.json');
+    vi.spyOn(profiles, 'migrateLegacyGwsCredentials').mockResolvedValue(undefined);
+    vi.spyOn(profiles, 'usesAdcForGws').mockResolvedValue(false);
+    vi.mocked(fs.access).mockResolvedValueOnce(undefined);
+
+    const environment = await profiles.getScopedEnvironment('sim');
+
+    expect(environment).not.toHaveProperty('GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE');
+    expect(environment.GOOGLE_WORKSPACE_CLI_CONFIG_DIR).toBe(
+      path.join(mockHome, '.config/gswitch/profiles/sim/gws')
+    );
   });
 
   it('rejects names that could escape the profile directory', () => {

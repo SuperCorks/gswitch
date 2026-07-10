@@ -4,6 +4,7 @@ import path from 'path';
 
 const PROFILE_NAME_PATTERN = /^[a-z][-a-z0-9]*$/;
 const GWS_CREDENTIAL_FILES = ['credentials.enc', 'credentials.json'];
+const GWS_ADC_MARKER = 'use-adc';
 
 async function fileExists(filePath) {
   try {
@@ -36,6 +37,10 @@ export class ProfileStore {
 
   getGwsConfigDir(name) {
     return path.join(this.getProfileDir(name), 'gws');
+  }
+
+  getGwsAdcMarkerPath(name) {
+    return path.join(this.getGwsConfigDir(name), GWS_ADC_MARKER);
   }
 
   getActiveAdcPath() {
@@ -96,6 +101,10 @@ export class ProfileStore {
 
   async migrateLegacyGwsCredentials(name) {
     await this.ensureProfile(name);
+    if (await this.usesAdcForGws(name)) {
+      return;
+    }
+
     const gwsConfigDir = this.getGwsConfigDir(name);
     const profileCredentialPaths = GWS_CREDENTIAL_FILES.map(fileName => (
       path.join(gwsConfigDir, fileName)
@@ -117,6 +126,22 @@ export class ProfileStore {
     }
   }
 
+  async usesAdcForGws(name) {
+    return fileExists(this.getGwsAdcMarkerPath(name));
+  }
+
+  async markGwsUsesAdc(name) {
+    await this.ensureProfile(name);
+    const markerPath = this.getGwsAdcMarkerPath(name);
+    await fs.writeFile(markerPath, 'ADC\n', { mode: 0o600 });
+    await fs.chmod(markerPath, 0o600);
+
+    // ADC is already stored at the profile root. Keep encrypted legacy
+    // credentials as rollback data, but remove redundant plaintext state.
+    await fs.rm(path.join(this.getGwsConfigDir(name), 'credentials.json'), { force: true });
+    await fs.rm(path.join(this.getGwsConfigDir(name), 'token_cache.json'), { force: true });
+  }
+
   async getScopedEnvironment(name) {
     const adcPath = await this.ensureAdc(name);
     if (!adcPath) {
@@ -127,6 +152,7 @@ export class ProfileStore {
 
     await this.migrateLegacyGwsCredentials(name);
     const gwsConfigDir = this.getGwsConfigDir(name);
+    const usesAdc = await this.usesAdcForGws(name);
     const encryptedGwsCredentials = path.join(gwsConfigDir, 'credentials.enc');
     const plainGwsCredentials = path.join(gwsConfigDir, 'credentials.json');
     const hasDedicatedGwsCredentials = (
@@ -141,7 +167,7 @@ export class ProfileStore {
       GOOGLE_WORKSPACE_CLI_CONFIG_DIR: gwsConfigDir
     };
 
-    if (!hasDedicatedGwsCredentials) {
+    if (usesAdc || !hasDedicatedGwsCredentials) {
       environment.GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE = adcPath;
     }
 
