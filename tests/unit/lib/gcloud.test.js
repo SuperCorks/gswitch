@@ -180,11 +180,12 @@ describe('lib/gcloud', () => {
 
       const result = await gcloud.updateAdc('personal');
 
-      const expectedSource = path.join(mockHome, '.config/gcloud/application_default_credentials_personal.json');
+      const expectedSource = path.join(mockHome, '.config/gswitch/profiles/personal/adc.json');
       const expectedDest = path.join(mockHome, '.config/gcloud/application_default_credentials.json');
 
       expect(fs.access).toHaveBeenCalledWith(expectedSource);
       expect(fs.copyFile).toHaveBeenCalledWith(expectedSource, expectedDest);
+      expect(fs.chmod).toHaveBeenCalledWith(expectedDest, 0o600);
       expect(result).toBe(true);
     });
 
@@ -224,6 +225,23 @@ describe('lib/gcloud', () => {
           'auth',
           'login',
           'user@example.com'
+        ],
+        { stdio: 'inherit' }
+      );
+    });
+
+    it('should force the browser auth flow when requested', async () => {
+      vi.mocked(execaModule.execa).mockResolvedValue({ stdout: '' });
+
+      await gcloud.login('user@example.com', { force: true });
+
+      expect(execaModule.execa).toHaveBeenCalledWith(
+        'gcloud',
+        [
+          'auth',
+          'login',
+          'user@example.com',
+          '--force'
         ],
         { stdio: 'inherit' }
       );

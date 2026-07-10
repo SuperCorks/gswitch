@@ -4,6 +4,7 @@ import path from 'path';
 import os from 'os';
 import { GWS_IDENTITY_SCOPES, mergeScopes } from './oauthScopes.js';
 import { ui } from './ui.js';
+import { profiles } from './profiles.js';
 
 const OAUTH_URL_PATTERN = /https:\/\/accounts\.google\.com\/[^\s]+|https:\/\/[^\s]+/g;
 
@@ -203,14 +204,31 @@ export class GoogleWorkspace {
     return Boolean(clientConfig.client_secret);
   }
 
-  async saveCredentials(account) {
-    const credentialPaths = this.getCredentialPaths(account);
+  async installClientConfig(clientIdFile) {
+    if (!clientIdFile || !(await this.hasClientSecret(clientIdFile))) {
+      return false;
+    }
+
     await fs.mkdir(this.getConfigDir(), { recursive: true });
+    const defaultClientIdFile = this.getDefaultClientIdFile();
+    await fs.copyFile(clientIdFile, defaultClientIdFile);
+    await fs.chmod(defaultClientIdFile, 0o600);
+    return true;
+  }
+
+  async saveCredentials(account) {
+    await profiles.ensureProfile(account);
+    await fs.mkdir(this.getConfigDir(), { recursive: true, mode: 0o700 });
+    const credentialPaths = CREDENTIAL_FILES.map(file => ({
+      active: path.join(this.getConfigDir(), file.activeName),
+      snapshot: path.join(profiles.getGwsConfigDir(account), file.activeName)
+    }));
 
     let saved = false;
     for (const credentialPath of credentialPaths) {
       if (await fileExists(credentialPath.active)) {
         await fs.copyFile(credentialPath.active, credentialPath.snapshot);
+        await fs.chmod(credentialPath.snapshot, 0o600);
         saved = true;
       } else {
         await fs.rm(credentialPath.snapshot, { force: true });
@@ -221,8 +239,13 @@ export class GoogleWorkspace {
   }
 
   async updateCredentials(account) {
-    const credentialPaths = this.getCredentialPaths(account);
-    const snapshotState = await Promise.all(
+    await profiles.migrateLegacyGwsCredentials(account);
+    await fs.mkdir(this.getConfigDir(), { recursive: true, mode: 0o700 });
+    const credentialPaths = CREDENTIAL_FILES.map(file => ({
+      active: path.join(this.getConfigDir(), file.activeName),
+      snapshot: path.join(profiles.getGwsConfigDir(account), file.activeName)
+    }));
+    let snapshotState = await Promise.all(
       credentialPaths.map(async credentialPath => ({
         ...credentialPath,
         exists: await fileExists(credentialPath.snapshot)
@@ -230,17 +253,41 @@ export class GoogleWorkspace {
     );
 
     if (!snapshotState.some(credentialPath => credentialPath.exists)) {
-      return false;
+      const adcPath = await profiles.ensureAdc(account);
+      if (!adcPath) {
+        return false;
+      }
+
+      await this.useAdcCredentials(account, adcPath);
+      snapshotState = snapshotState.map(credentialPath => ({
+        ...credentialPath,
+        exists: credentialPath.snapshot.endsWith('credentials.json')
+      }));
     }
 
     for (const credentialPath of snapshotState) {
       if (credentialPath.exists) {
         await fs.copyFile(credentialPath.snapshot, credentialPath.active);
+        await fs.chmod(credentialPath.active, 0o600);
       } else {
         await fs.rm(credentialPath.active, { force: true });
       }
     }
 
+    await fs.rm(path.join(this.getConfigDir(), 'token_cache.json'), { force: true });
+
+    return true;
+  }
+
+  async useAdcCredentials(account, adcPath) {
+    await profiles.ensureProfile(account);
+    const profileGwsDir = profiles.getGwsConfigDir(account);
+    const plainCredentialsPath = path.join(profileGwsDir, 'credentials.json');
+    const encryptedCredentialsPath = path.join(profileGwsDir, 'credentials.enc');
+
+    await fs.copyFile(adcPath, plainCredentialsPath);
+    await fs.chmod(plainCredentialsPath, 0o600);
+    await fs.rm(encryptedCredentialsPath, { force: true });
     return true;
   }
 }

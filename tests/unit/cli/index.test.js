@@ -3,15 +3,23 @@ import fs from 'fs';
 import { createAccount } from '../../../src/cli/index.js';
 import { gcloud } from '../../../src/lib/gcloud.js';
 import { gws } from '../../../src/lib/gws.js';
-import { GCLOUD_ADC_SCOPE, LOGIN_SCOPE_GROUPS } from '../../../src/lib/oauthScopes.js';
+import {
+  GCLOUD_ADC_IDENTITY_SCOPES,
+  GCLOUD_ADC_SCOPE,
+  LOGIN_SCOPE_GROUPS
+} from '../../../src/lib/oauthScopes.js';
 
 describe('cli/createAccount', () => {
   beforeEach(() => {
     vi.spyOn(console, 'log').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(gws, 'isInstalled').mockResolvedValue(false);
     vi.spyOn(gws, 'login').mockResolvedValue(false);
     vi.spyOn(gws, 'saveCredentials').mockResolvedValue(false);
     vi.spyOn(gws, 'hasClientSecret').mockResolvedValue(true);
+    vi.spyOn(gws, 'installClientConfig').mockResolvedValue(false);
+    vi.spyOn(gws, 'useAdcCredentials').mockResolvedValue(true);
+    vi.spyOn(gws, 'updateCredentials').mockResolvedValue(true);
   });
 
   afterEach(() => {
@@ -76,14 +84,40 @@ describe('cli/createAccount', () => {
       clientIdFile: '/tmp/client_secret.json'
     });
 
+    const expectedScopes = [
+      ...GCLOUD_ADC_IDENTITY_SCOPES,
+      'https://www.googleapis.com/auth/spreadsheets',
+      GCLOUD_ADC_SCOPE
+    ].join(',');
+
     expect(loginSpy).toHaveBeenCalledWith('hello@peachystudio.com', {
-      scopes: 'https://www.googleapis.com/auth/spreadsheets,https://www.googleapis.com/auth/cloud-platform',
+      scopes: expectedScopes,
       clientIdFile: '/tmp/client_secret.json'
     });
     expect(loginAdcSpy).toHaveBeenCalledWith('hello@peachystudio.com', {
-      scopes: 'https://www.googleapis.com/auth/spreadsheets,https://www.googleapis.com/auth/cloud-platform',
+      scopes: expectedScopes,
       clientIdFile: '/tmp/client_secret.json'
     });
+  });
+
+  it('forces browser auth when refreshing an existing account', async () => {
+    vi.spyOn(gcloud, 'configurationExists').mockResolvedValue(true);
+    vi.spyOn(gcloud, 'createConfiguration').mockResolvedValue(undefined);
+    vi.spyOn(gcloud, 'activateConfiguration').mockResolvedValue(undefined);
+    vi.spyOn(gcloud, 'setAccount').mockResolvedValue(undefined);
+    vi.spyOn(gcloud, 'loginAdc').mockResolvedValue(undefined);
+    vi.spyOn(gcloud, 'saveAdc').mockResolvedValue(undefined);
+    vi.spyOn(gcloud, 'updateAdc').mockResolvedValue(true);
+
+    const loginSpy = vi.spyOn(gcloud, 'login').mockResolvedValue(undefined);
+    vi.spyOn(fs, 'existsSync').mockReturnValue(true);
+
+    await createAccount('rk', 'simon@redkrypton.com');
+
+    expect(gcloud.createConfiguration).not.toHaveBeenCalled();
+    expect(loginSpy).toHaveBeenCalledWith('simon@redkrypton.com', expect.objectContaining({
+      force: true
+    }));
   });
 
   it('expands helper permission flags into login scopes', async () => {
@@ -96,7 +130,6 @@ describe('cli/createAccount', () => {
 
     const loginSpy = vi.spyOn(gcloud, 'login').mockResolvedValue(undefined);
     const loginAdcSpy = vi.spyOn(gcloud, 'loginAdc').mockResolvedValue(undefined);
-    const gwsLoginSpy = vi.spyOn(gws, 'login').mockResolvedValue(false);
     vi.spyOn(fs, 'existsSync').mockReturnValue(true);
 
     await createAccount('peachy', 'hello@peachystudio.com', {
@@ -107,6 +140,7 @@ describe('cli/createAccount', () => {
     });
 
     const expectedScopes = [
+      ...GCLOUD_ADC_IDENTITY_SCOPES,
       GCLOUD_ADC_SCOPE,
       ...LOGIN_SCOPE_GROUPS.gmail,
       ...LOGIN_SCOPE_GROUPS.calendar,
@@ -127,16 +161,10 @@ describe('cli/createAccount', () => {
       clientIdFile: '/tmp/client_secret.json',
       scopes: expectedScopes
     });
-    expect(gwsLoginSpy).toHaveBeenCalledWith({
-      gmail: true,
-      calendar: true,
-      drive: true,
-      clientIdFile: '/tmp/client_secret.json',
-      scopes: expectedScopes
-    });
+    expect(gws.login).not.toHaveBeenCalled();
   });
 
-  it('passes the bundled production OAuth client to auth flows by default', async () => {
+  it('prefers the local production OAuth client to auth flows by default', async () => {
     vi.spyOn(gcloud, 'configurationExists').mockResolvedValue(false);
     vi.spyOn(gcloud, 'createConfiguration').mockResolvedValue(undefined);
     vi.spyOn(gcloud, 'activateConfiguration').mockResolvedValue(undefined);
@@ -144,9 +172,36 @@ describe('cli/createAccount', () => {
     vi.spyOn(gcloud, 'setAccount').mockResolvedValue(undefined);
     vi.spyOn(gcloud, 'saveAdc').mockResolvedValue(undefined);
     vi.spyOn(gcloud, 'updateAdc').mockResolvedValue(true);
+    vi.spyOn(fs, 'existsSync').mockImplementation(filePath => (
+      String(filePath).endsWith('/.config/gswitch/google-oauth-client.json') ||
+      String(filePath).endsWith('/src/config/google-oauth-client.json')
+    ));
 
     const loginAdcSpy = vi.spyOn(gcloud, 'loginAdc').mockResolvedValue(undefined);
-    const gwsLoginSpy = vi.spyOn(gws, 'login').mockResolvedValue(false);
+
+    await createAccount('peachy', 'hello@peachystudio.com');
+
+    const expectedClientIdFile = expect.stringMatching(/\.config\/gswitch\/google-oauth-client\.json$/);
+    expect(loginAdcSpy).toHaveBeenCalledWith('hello@peachystudio.com', expect.objectContaining({
+      clientIdFile: expectedClientIdFile
+    }));
+    expect(gws.login).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the bundled production OAuth client by default', async () => {
+    vi.spyOn(gcloud, 'configurationExists').mockResolvedValue(false);
+    vi.spyOn(gcloud, 'createConfiguration').mockResolvedValue(undefined);
+    vi.spyOn(gcloud, 'activateConfiguration').mockResolvedValue(undefined);
+    vi.spyOn(gcloud, 'login').mockResolvedValue(undefined);
+    vi.spyOn(gcloud, 'setAccount').mockResolvedValue(undefined);
+    vi.spyOn(gcloud, 'saveAdc').mockResolvedValue(undefined);
+    vi.spyOn(gcloud, 'updateAdc').mockResolvedValue(true);
+    vi.spyOn(fs, 'existsSync').mockImplementation(filePath => (
+      !String(filePath).endsWith('/.config/gswitch/google-oauth-client.json') &&
+      String(filePath).endsWith('/src/config/google-oauth-client.json')
+    ));
+
+    const loginAdcSpy = vi.spyOn(gcloud, 'loginAdc').mockResolvedValue(undefined);
 
     await createAccount('peachy', 'hello@peachystudio.com');
 
@@ -154,12 +209,10 @@ describe('cli/createAccount', () => {
     expect(loginAdcSpy).toHaveBeenCalledWith('hello@peachystudio.com', expect.objectContaining({
       clientIdFile: expectedClientIdFile
     }));
-    expect(gwsLoginSpy).toHaveBeenCalledWith(expect.objectContaining({
-      clientIdFile: expectedClientIdFile
-    }));
+    expect(gws.login).not.toHaveBeenCalled();
   });
 
-  it('passes the bundled production OAuth client to Workspace auth flows by default', async () => {
+  it('passes the local production OAuth client to the shared ADC flow by default', async () => {
     vi.spyOn(gcloud, 'configurationExists').mockResolvedValue(false);
     vi.spyOn(gcloud, 'createConfiguration').mockResolvedValue(undefined);
     vi.spyOn(gcloud, 'activateConfiguration').mockResolvedValue(undefined);
@@ -167,24 +220,25 @@ describe('cli/createAccount', () => {
     vi.spyOn(gcloud, 'setAccount').mockResolvedValue(undefined);
     vi.spyOn(gcloud, 'saveAdc').mockResolvedValue(undefined);
     vi.spyOn(gcloud, 'updateAdc').mockResolvedValue(true);
+    vi.spyOn(fs, 'existsSync').mockImplementation(filePath => (
+      String(filePath).endsWith('/.config/gswitch/google-oauth-client.json') ||
+      String(filePath).endsWith('/src/config/google-oauth-client.json')
+    ));
 
     const loginAdcSpy = vi.spyOn(gcloud, 'loginAdc').mockResolvedValue(undefined);
-    const gwsLoginSpy = vi.spyOn(gws, 'login').mockResolvedValue(false);
 
     await createAccount('peachy', 'hello@peachystudio.com', {
       drive: true
     });
 
-    const expectedClientIdFile = expect.stringMatching(/src\/config\/google-oauth-client\.json$/);
+    const expectedClientIdFile = expect.stringMatching(/\.config\/gswitch\/google-oauth-client\.json$/);
     expect(loginAdcSpy).toHaveBeenCalledWith('hello@peachystudio.com', expect.objectContaining({
       clientIdFile: expectedClientIdFile
     }));
-    expect(gwsLoginSpy).toHaveBeenCalledWith(expect.objectContaining({
-      clientIdFile: expectedClientIdFile
-    }));
+    expect(gws.login).not.toHaveBeenCalled();
   });
 
-  it('saves gws credentials after gws login succeeds', async () => {
+  it('configures gws to reuse the saved ADC', async () => {
     vi.spyOn(gcloud, 'configurationExists').mockResolvedValue(false);
     vi.spyOn(gcloud, 'createConfiguration').mockResolvedValue(undefined);
     vi.spyOn(gcloud, 'activateConfiguration').mockResolvedValue(undefined);
@@ -194,14 +248,19 @@ describe('cli/createAccount', () => {
     vi.spyOn(gcloud, 'saveAdc').mockResolvedValue(undefined);
     vi.spyOn(gcloud, 'updateAdc').mockResolvedValue(true);
 
-    vi.spyOn(gws, 'login').mockResolvedValue(true);
-    const saveCredentialsSpy = vi.spyOn(gws, 'saveCredentials').mockResolvedValue(true);
+    vi.mocked(gws.isInstalled).mockResolvedValue(true);
+    vi.spyOn(gcloud, 'getAdcPath').mockResolvedValue('/profiles/peachy/adc.json');
     vi.spyOn(fs, 'existsSync').mockReturnValue(true);
 
     await createAccount('peachy', 'hello@peachystudio.com', {
       clientIdFile: '/tmp/client_secret.json'
     });
 
-    expect(saveCredentialsSpy).toHaveBeenCalledWith('peachy');
+    expect(gws.useAdcCredentials).toHaveBeenCalledWith(
+      'peachy',
+      '/profiles/peachy/adc.json'
+    );
+    expect(gws.updateCredentials).toHaveBeenCalledWith('peachy');
+    expect(gws.login).not.toHaveBeenCalled();
   });
 });

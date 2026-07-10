@@ -1,5 +1,10 @@
 export const GCLOUD_ADC_SCOPE = 'https://www.googleapis.com/auth/cloud-platform';
 
+export const GCLOUD_ADC_IDENTITY_SCOPES = Object.freeze([
+  'openid',
+  'https://www.googleapis.com/auth/userinfo.email'
+]);
+
 export const GWS_IDENTITY_SCOPES = Object.freeze([
   'openid',
   'email',
@@ -70,6 +75,12 @@ export function resolveLoginScopes(options = {}) {
 
   if (helperScopes.length > 0) {
     scopes.unshift(GCLOUD_ADC_SCOPE);
+  }
+
+  // gcloud validates the positional account from the ID token. Custom scope
+  // lists must request OpenID identity data or that validation crashes.
+  if (scopes.length > 0) {
+    scopes.unshift(...GCLOUD_ADC_IDENTITY_SCOPES);
   }
 
   return mergeScopes(scopes);

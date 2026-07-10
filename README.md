@@ -1,6 +1,6 @@
 # gswitch
 
-A CLI tool to seamlessly switch between Google Cloud configurations and update application default credentials.
+A CLI tool for fast, isolated Google account contexts across `gcloud`, Application Default Credentials, Google client libraries, and `gws`.
 
 ## Installation
 
@@ -28,6 +28,31 @@ gswitch personal
 
 After switching, `gswitch` prints the configuration alias and the active account email, plus the current project.
 
+This global mode updates the active `gcloud`, ADC, and `gws` credential slots for interactive use. For agents and concurrent scripts, prefer the isolated commands below.
+
+### Run commands in an isolated account
+```bash
+gswitch run rk -- gcloud projects list
+gswitch run rk -- gws drive files list --params '{"pageSize": 10}'
+gswitch run sim -- node scripts/sync-drive.js
+```
+
+`gswitch run` does not activate a global configuration or overwrite the live ADC and `gws` files. It scopes the selected account to the child process with:
+
+- `CLOUDSDK_ACTIVE_CONFIG_NAME`
+- `GOOGLE_APPLICATION_CREDENTIALS`
+- `GOOGLE_WORKSPACE_CLI_CONFIG_DIR`
+- `GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE` when the profile does not have a legacy dedicated `gws` credential
+
+This allows different agents and scripts to use different Google accounts concurrently.
+
+### Open an isolated shell
+```bash
+gswitch shell rk
+```
+
+Commands launched inside the shell inherit the selected account context. Exit the shell to return to the parent environment.
+
 ### List configurations
 ```bash
 gswitch list
@@ -53,28 +78,29 @@ This guides you through the entire setup process:
 - Activate the target configuration before starting OAuth
 - Log in with the selected account
 - Set up application default credentials
-- Save the ADC file under the configuration name for future switching
-- Log in to `gws` with the same OAuth client
-- Save `gws` credentials under the configuration name for future switching
+- Save ADC under `~/.config/gswitch/profiles/<name>/adc.json`
+- Configure `gws` to reuse the same ADC instead of running another OAuth flow
 - Re-activate the target configuration when setup completes
 - Restore the live ADC file so application-default commands work immediately
 
 Use `--private` to run both OAuth steps with `gcloud --no-launch-browser` and open the emitted auth URL in a Google Chrome incognito window.
 
-Use `--scopes` to pass a comma-separated scope list to `gcloud auth application-default login`. `gcloud auth login` does not support that flag, so `gswitch` only applies custom scopes to the ADC step.
+Use `--scopes` to pass a comma-separated scope list to `gcloud auth application-default login`. `gcloud auth login` does not support that flag, so `gswitch` only applies custom scopes to the ADC step. When custom scopes are requested, `gswitch` also adds `openid` and the Google account email scope so gcloud can verify that the browser returned the requested account.
 
-Use the helper flags to add common Google Workspace permissions to both ADC and `gws auth login`:
+Use the helper flags to add common Google Workspace permissions to the shared ADC used by Google client libraries and `gws`:
 - `--gmail` adds Gmail read/write email access
 - `--calendar` adds Google Calendar read/write access
 - `--drive` adds Google Drive, Google Docs, and Google Sheets read/write access
 
 When any helper flag is used, `gswitch` also includes the default Google Cloud ADC scope so the resulting ADC file still works for Google Cloud SDK workflows.
 
-If the `gws` command is installed, `gswitch new` runs `gws auth login` with the bundled production OAuth client, identity scopes, and any requested helper or custom scopes, then saves any `~/.config/gws/credentials.enc` or `~/.config/gws/credentials.json` file under the configuration name. Later `gswitch <account>` calls restore those saved `gws` credentials when available. If no OAuth client file is available, setup continues without running `gws auth login` so `gws` cannot fall back to unrelated local client credentials.
+If `gws` is installed, `gswitch new` stores the ADC as that profile's `gws` credential. This avoids a third browser login and keeps Google Cloud libraries and Workspace commands on the same account and scope grant.
 
-Google blocks the default ADC OAuth client when you request Workspace scopes such as Drive, Gmail, Docs, Sheets, or Calendar. `gswitch` includes a production Desktop OAuth client ID for those flows and uses it automatically with `gcloud auth application-default login` and `gws auth login`. The bundled file does not contain a client secret.
+Profiles imported from older `gswitch` versions retain their dedicated encrypted `gws` credential for compatibility. Refreshing one with `gswitch new <name> <email> --gmail --calendar --drive` consolidates it onto the new shared ADC model.
 
-If you need to use a different OAuth client, pass a Desktop client JSON with `--client-id-file`. `gswitch` passes its client ID to `gws auth login`; when the file also contains a `client_secret`, `gswitch` passes that secret too. Recent `gws` versions can also use the ADC file generated by `gcloud auth application-default login`, so a separate `gws auth login` is not required for many Workspace CLI workflows.
+Google blocks the default ADC OAuth client when you request Workspace scopes such as Drive, Gmail, Docs, Sheets, or Calendar. `gswitch` first looks for a production Desktop OAuth client at `~/.config/gswitch/google-oauth-client.json`, then falls back to the bundled production client. The client file must contain the Desktop OAuth client secret required by `gcloud auth application-default login`.
+
+If you need to use a different OAuth client, pass a Desktop client JSON with `--client-id-file`. The resulting ADC contains the client information and refresh token needed by both Google client libraries and `gws`.
 
 Running `gswitch new` on an existing configuration will refresh the credentials without recreating the configuration.
 
@@ -87,9 +113,12 @@ Interactively select a project from your available GCP projects. The current pro
 
 ## How it works
 
-When you switch accounts, `gswitch` automatically:
-1. Activates the specified gcloud configuration
-2. Updates your `application_default_credentials.json` by copying from `application_default_credentials_<account>.json`
-3. Displays the current project and suggests `gswitch project` to change it
+Account profiles live under `~/.config/gswitch/profiles/<name>/`. Existing ADC and `gws` snapshots from older releases are imported into this directory the first time a profile is used; the legacy files are left in place as rollback copies.
 
-If the saved ADC file for that configuration is missing, `gswitch` will show a warning and the exact `gcloud` command to regenerate it.
+When you switch accounts globally, `gswitch` automatically:
+1. Activates the specified gcloud configuration
+2. Restores the profile ADC to the standard `application_default_credentials.json` location
+3. Restores the profile's `gws` credential and clears its stale token cache
+4. Displays the current project and suggests `gswitch project` to change it
+
+`gswitch run` and `gswitch shell` leave all three global slots untouched and select the profile only through child-process environment variables.

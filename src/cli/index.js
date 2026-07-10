@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import { ui } from '../lib/ui.js';
 import { gcloud } from '../lib/gcloud.js';
 import { gws } from '../lib/gws.js';
+import { accountContext } from '../lib/accountContext.js';
 import { resolveLoginScopes, usesWorkspaceScopes } from '../lib/oauthScopes.js';
 import { select, input } from '@inquirer/prompts';
 
@@ -17,6 +18,7 @@ const __dirname = path.dirname(__filename);
 const pkgPath = path.join(__dirname, '../../package.json');
 const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
 const productionGoogleOAuthClientFile = path.join(__dirname, '../config/google-oauth-client.json');
+const localGoogleOAuthClientFile = path.join(os.homedir(), '.config/gswitch/google-oauth-client.json');
 
 function isUserCancellation(error) {
   // Check by error name since ExitPromptError may not be directly importable
@@ -60,11 +62,29 @@ ${chalk.bold('HOW TO ADD AN ACCOUNT')}
     .argument('[email]', 'Email address for the account')
     .option('--private', 'Open OAuth URLs in a Chrome incognito window')
     .option('--scopes <scopes>', 'Comma-separated OAuth scopes to pass to application-default login')
-    .option('--client-id-file <path>', 'Desktop OAuth client JSON for application-default and gws login')
-    .option('--gmail', 'Add Gmail read/write scopes to application-default and gws login')
-    .option('--calendar', 'Add Google Calendar read/write scopes to application-default and gws login')
-    .option('--drive', 'Add Drive, Google Docs, and Google Sheets read/write scopes to application-default and gws login')
+    .option('--client-id-file <path>', 'Desktop OAuth client JSON for application-default login')
+    .option('--gmail', 'Add Gmail read/write scopes to the shared account credential')
+    .option('--calendar', 'Add Google Calendar read/write scopes to the shared account credential')
+    .option('--drive', 'Add Drive, Google Docs, and Google Sheets read/write scopes to the shared account credential')
     .action((name, email, options) => createAccount(name, email, options));
+
+  program
+    .command('run')
+    .description('Run a command with an isolated Google account context')
+    .argument('<account>', 'Configuration name to use')
+    .argument('<command...>', 'Command and arguments to run after --')
+    .allowUnknownOption(true)
+    .action(async (account, command) => {
+      process.exitCode = await runInAccount(account, command);
+    });
+
+  program
+    .command('shell')
+    .description('Open an interactive shell with an isolated Google account context')
+    .argument('<account>', 'Configuration name to use')
+    .action(async account => {
+      process.exitCode = await openAccountShell(account);
+    });
 
   program
     .command('project')
@@ -155,7 +175,10 @@ export async function createAccount(name, email, options = {}) {
 
         // 3. Login
         console.log(ui.bold('\n3. Logging in...'));
-        await gcloud.login(email, normalizedOptions);
+        const gcloudLoginOptions = configExists
+            ? { ...normalizedOptions, force: true }
+            : normalizedOptions;
+        await gcloud.login(email, gcloudLoginOptions);
 
         // 4. Set Account
         console.log(ui.bold(`\n4. Setting account to ${email}...`));
@@ -165,28 +188,19 @@ export async function createAccount(name, email, options = {}) {
         console.log(ui.bold('\n5. Setting up Application Default Credentials (ADC)...'));
         await gcloud.loginAdc(email, normalizedOptions);
 
-        // 6. Rename ADC file
+        // 6. Save ADC in the account profile.
         console.log(ui.bold(`\n6. Saving ADC file for '${name}'...`));
         await gcloud.saveAdc(name);
 
-        // 7. Login gws when it is available, then snapshot its global credential slot.
+        // 7. Point gws at the same user credential instead of running another OAuth flow.
         console.log(ui.bold('\n7. Setting up Google Workspace CLI (gws)...'));
-        console.log(ui.dim(`Use ${email} in the browser consent flow if prompted.`));
-        const gwsCanUseAuthClient = Boolean(clientIdFile);
-        if (!gwsCanUseAuthClient) {
-            console.log(ui.dim('Skipping separate gws auth login because no explicit OAuth client file was provided.'));
+        const gwsInstalled = await gws.isInstalled();
+        if (gwsInstalled) {
+            const adcPath = await gcloud.getAdcPath(name);
+            await gws.useAdcCredentials(name, adcPath);
+            console.log(ui.success('Google Workspace CLI will reuse this profile\'s ADC.'));
         } else {
-            const gwsLoggedIn = await gws.login(normalizedOptions);
-            if (gwsLoggedIn) {
-                const gwsSaved = await gws.saveCredentials(name);
-                if (gwsSaved) {
-                    console.log(ui.success('Google Workspace CLI credentials saved.'));
-                } else {
-                    console.log(ui.warn('gws login completed, but no credential file was found to save.'));
-                }
-            } else {
-                console.log(ui.dim('gws is not installed, skipping Google Workspace CLI login.'));
-            }
+            console.log(ui.dim('gws is not installed, skipping Google Workspace CLI setup.'));
         }
 
         // 8. Re-activate the target config in case auth commands changed it.
@@ -198,6 +212,10 @@ export async function createAccount(name, email, options = {}) {
         const adcRestored = await gcloud.updateAdc(name);
         if (!adcRestored) {
             throw new Error(`Failed to restore ADC file for '${name}'`);
+        }
+
+        if (gwsInstalled) {
+            await gws.updateCredentials(name);
         }
 
         console.log(ui.success(`\n✅ Configuration '${name}' setup complete!`));
@@ -212,6 +230,15 @@ export async function createAccount(name, email, options = {}) {
     }
 }
 
+export async function runInAccount(account, command) {
+    return accountContext.run(account, command);
+}
+
+export async function openAccountShell(account) {
+    console.log(ui.info(`Opening an isolated shell for '${account}'. Exit the shell to return.`));
+    return accountContext.shell(account);
+}
+
 async function resolveClientIdFile(rawClientIdFile, scopes) {
     const requestedClientIdFile = rawClientIdFile ? expandHome(rawClientIdFile) : undefined;
     if (requestedClientIdFile) {
@@ -222,8 +249,15 @@ async function resolveClientIdFile(rawClientIdFile, scopes) {
         return requestedClientIdFile;
     }
 
-    if (fs.existsSync(productionGoogleOAuthClientFile)) {
-        return productionGoogleOAuthClientFile;
+    const defaultClientIdFiles = [
+        localGoogleOAuthClientFile,
+        productionGoogleOAuthClientFile
+    ];
+
+    for (const clientIdFile of defaultClientIdFiles) {
+        if (fs.existsSync(clientIdFile)) {
+            return clientIdFile;
+        }
     }
 
     if (!usesWorkspaceScopes(scopes)) {

@@ -1,8 +1,8 @@
 import { execa } from 'execa';
 import fs from 'fs/promises';
-import path from 'path';
 import os from 'os';
 import { ui } from './ui.js';
+import { profiles } from './profiles.js';
 
 const OAUTH_URL_PATTERN = /https:\/\/accounts\.google\.com\/[^\s]+|https:\/\/[^\s]+/g;
 
@@ -154,19 +154,22 @@ export class GCloud {
   }
 
   async updateAdc(account) {
-    const homeDir = os.homedir();
-    const gcloudConfigPath = path.join(homeDir, '.config/gcloud/application_default_credentials.json');
-    const accountAdcPath = path.join(homeDir, '.config/gcloud', `application_default_credentials_${account}.json`);
-
     try {
-      await fs.access(accountAdcPath);
-      // File exists, copy it
-      await fs.copyFile(accountAdcPath, gcloudConfigPath);
+      const accountAdcPath = await profiles.ensureAdc(account);
+      if (!accountAdcPath) {
+        return false;
+      }
+
+      await fs.copyFile(accountAdcPath, profiles.getActiveAdcPath());
+      await fs.chmod(profiles.getActiveAdcPath(), 0o600);
       return true;
     } catch (error) {
-      // File doesn't exist
       return false;
     }
+  }
+
+  async getAdcPath(account) {
+    return profiles.ensureAdc(account);
   }
   
   async getCurrentAccount() {
@@ -195,6 +198,9 @@ export class GCloud {
 
   async login(email, options = {}) {
     const args = this.buildAuthArgs(['auth', 'login'], email);
+    if (options.force) {
+      args.push('--force');
+    }
 
     if (options.private) {
       await this.runPrivateLogin(args);
@@ -230,15 +236,10 @@ export class GCloud {
   }
 
   async saveAdc(account) {
-    const homeDir = os.homedir();
-    const gcloudConfigPath = path.join(homeDir, '.config/gcloud/application_default_credentials.json');
-    const accountAdcPath = path.join(homeDir, '.config/gcloud', `application_default_credentials_${account}.json`);
-    
-    // Rename/Move
     try {
-        await fs.rename(gcloudConfigPath, accountAdcPath);
+      await profiles.saveActiveAdc(account);
     } catch (error) {
-        throw new Error(`Failed to save ADC file: ${error.message}`);
+      throw new Error(`Failed to save ADC file: ${error.message}`);
     }
   }
 

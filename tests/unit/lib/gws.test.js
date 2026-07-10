@@ -6,6 +6,7 @@ import os from 'os';
 import path from 'path';
 import { PassThrough } from 'stream';
 import { GWS_IDENTITY_SCOPES } from '../../../src/lib/oauthScopes.js';
+import { profiles } from '../../../src/lib/profiles.js';
 
 vi.mock('execa');
 vi.mock('fs/promises');
@@ -16,9 +17,14 @@ describe('lib/gws', () => {
 
   beforeEach(() => {
     vi.mocked(os.homedir).mockReturnValue(mockHome);
+    vi.spyOn(profiles, 'ensureProfile').mockResolvedValue(
+      path.join(mockHome, '.config/gswitch/profiles/personal')
+    );
+    vi.spyOn(profiles, 'migrateLegacyGwsCredentials').mockResolvedValue(undefined);
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.resetAllMocks();
   });
 
@@ -240,6 +246,42 @@ describe('lib/gws', () => {
     await expect(gws.hasClientSecret('/tmp/client_id.json')).resolves.toBe(false);
   });
 
+  it('installs OAuth client config when it contains a secret', async () => {
+    vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify({
+      installed: {
+        client_id: 'client-id.apps.googleusercontent.com',
+        client_secret: 'client-secret'
+      }
+    }));
+    vi.mocked(fs.mkdir).mockResolvedValue(undefined);
+    vi.mocked(fs.copyFile).mockResolvedValue(undefined);
+    vi.mocked(fs.chmod).mockResolvedValue(undefined);
+
+    await expect(gws.installClientConfig('/tmp/client_secret.json')).resolves.toBe(true);
+
+    expect(fs.copyFile).toHaveBeenCalledWith(
+      '/tmp/client_secret.json',
+      path.join(mockHome, '.config/gws/client_secret.json')
+    );
+    expect(fs.chmod).toHaveBeenCalledWith(
+      path.join(mockHome, '.config/gws/client_secret.json'),
+      0o600
+    );
+  });
+
+  it('does not install OAuth client config when it has no secret', async () => {
+    vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify({
+      installed: {
+        client_id: 'client-id.apps.googleusercontent.com'
+      }
+    }));
+
+    await expect(gws.installClientConfig('/tmp/client_id.json')).resolves.toBe(false);
+
+    expect(fs.copyFile).not.toHaveBeenCalled();
+    expect(fs.chmod).not.toHaveBeenCalled();
+  });
+
   it('skips login when gws is not installed', async () => {
     vi.mocked(execaModule.execa).mockRejectedValue(new Error('ENOENT'));
 
@@ -256,11 +298,11 @@ describe('lib/gws', () => {
 
     expect(fs.copyFile).toHaveBeenCalledWith(
       path.join(mockHome, '.config/gws/credentials.enc'),
-      path.join(mockHome, '.config/gws/credentials_personal.enc')
+      path.join(mockHome, '.config/gswitch/profiles/personal/gws/credentials.enc')
     );
     expect(fs.copyFile).toHaveBeenCalledWith(
       path.join(mockHome, '.config/gws/credentials.json'),
-      path.join(mockHome, '.config/gws/credentials_personal.json')
+      path.join(mockHome, '.config/gswitch/profiles/personal/gws/credentials.json')
     );
   });
 
@@ -274,19 +316,60 @@ describe('lib/gws', () => {
     await expect(gws.updateCredentials('personal')).resolves.toBe(true);
 
     expect(fs.copyFile).toHaveBeenCalledWith(
-      path.join(mockHome, '.config/gws/credentials_personal.enc'),
+      path.join(mockHome, '.config/gswitch/profiles/personal/gws/credentials.enc'),
       path.join(mockHome, '.config/gws/credentials.enc')
     );
     expect(fs.rm).toHaveBeenCalledWith(
       path.join(mockHome, '.config/gws/credentials.json'),
       { force: true }
     );
+    expect(fs.rm).toHaveBeenCalledWith(
+      path.join(mockHome, '.config/gws/token_cache.json'),
+      { force: true }
+    );
   });
 
   it('returns false when no saved credentials exist', async () => {
     vi.mocked(fs.access).mockRejectedValue(new Error('ENOENT'));
+    vi.spyOn(profiles, 'ensureAdc').mockResolvedValue(null);
 
     await expect(gws.updateCredentials('personal')).resolves.toBe(false);
     expect(fs.copyFile).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the profile ADC when no dedicated gws credential exists', async () => {
+    vi.mocked(fs.access).mockRejectedValue(new Error('ENOENT'));
+    vi.mocked(fs.copyFile).mockResolvedValue(undefined);
+    vi.mocked(fs.chmod).mockResolvedValue(undefined);
+    vi.mocked(fs.rm).mockResolvedValue(undefined);
+    vi.spyOn(profiles, 'ensureAdc').mockResolvedValue('/profiles/personal/adc.json');
+
+    await expect(gws.updateCredentials('personal')).resolves.toBe(true);
+
+    expect(fs.copyFile).toHaveBeenCalledWith(
+      '/profiles/personal/adc.json',
+      path.join(mockHome, '.config/gswitch/profiles/personal/gws/credentials.json')
+    );
+    expect(fs.copyFile).toHaveBeenCalledWith(
+      path.join(mockHome, '.config/gswitch/profiles/personal/gws/credentials.json'),
+      path.join(mockHome, '.config/gws/credentials.json')
+    );
+  });
+
+  it('stores ADC as the profile gws credential and removes a dedicated token', async () => {
+    vi.mocked(fs.copyFile).mockResolvedValue(undefined);
+    vi.mocked(fs.chmod).mockResolvedValue(undefined);
+    vi.mocked(fs.rm).mockResolvedValue(undefined);
+
+    await expect(gws.useAdcCredentials('personal', '/profiles/personal/adc.json')).resolves.toBe(true);
+
+    expect(fs.copyFile).toHaveBeenCalledWith(
+      '/profiles/personal/adc.json',
+      path.join(mockHome, '.config/gswitch/profiles/personal/gws/credentials.json')
+    );
+    expect(fs.rm).toHaveBeenCalledWith(
+      path.join(mockHome, '.config/gswitch/profiles/personal/gws/credentials.enc'),
+      { force: true }
+    );
   });
 });
