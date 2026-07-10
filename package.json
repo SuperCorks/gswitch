@@ -1,6 +1,6 @@
 {
   "name": "@supercorks/gswitch",
-  "version": "1.3.2",
+  "version": "1.4.0",
   "description": "Switch Google Cloud configurations and application default credentials",
   "type": "module",
   "publishConfig": {
