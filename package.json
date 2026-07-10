@@ -40,7 +40,8 @@
   },
   "scripts": {
     "start": "node bin/gswitch.js",
-    "test": "vitest run"
+    "test": "vitest run",
+    "release:inject-oauth-client": "node scripts/inject-oauth-client.js"
   },
   "devDependencies": {
     "vitest": "^4.0.18"

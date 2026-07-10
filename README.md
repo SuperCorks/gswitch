@@ -98,9 +98,11 @@ If `gws` is installed, `gswitch new` marks the profile to use its ADC directly. 
 
 Profiles imported from older `gswitch` versions retain their dedicated encrypted `gws` credential for compatibility and rollback. Refreshing one with `gswitch new <name> <email> --gmail --calendar --drive` consolidates it onto the new shared ADC model without deleting the encrypted profile copy.
 
-Google blocks the default ADC OAuth client when you request Workspace scopes such as Drive, Gmail, Docs, Sheets, or Calendar. For standalone installs, `gswitch` temporarily bundles the verified GTM Manager Desktop OAuth client, including the installed-app `client_secret` required by `gcloud auth application-default login`. This fallback will be replaced by the dedicated `gswitch` client after Google verifies it.
+Google blocks the default ADC OAuth client when you request Workspace scopes such as Drive, Gmail, Docs, Sheets, or Calendar. Published `gswitch` packages temporarily bundle the verified GTM Manager Desktop OAuth client, including the installed-app `client_secret` required by `gcloud auth application-default login`. The client is injected from a protected GitHub Actions environment during release and is not stored in the source repository. This fallback will be replaced by the dedicated `gswitch` client after Google verifies it.
 
 `gswitch` still prefers `~/.config/gswitch/google-oauth-client.json` when present. To use a different OAuth client explicitly, pass a Desktop client JSON with `--client-id-file`. The resulting ADC contains the client information and refresh token needed by both Google client libraries and `gws`.
+
+Maintainers publish by updating the package version and pushing the matching `v<version>` tag. The publish workflow tests the tagged commit, injects `GSWITCH_OAUTH_CLIENT_JSON`, verifies the package contents, and authenticates to npm through trusted publishing with short-lived OIDC credentials.
 
 Desktop OAuth client configuration is distributed app identity, not a user credential. The package never includes user access tokens, refresh tokens, ADC files, or `gws` credentials.
 
