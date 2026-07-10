@@ -2,7 +2,11 @@ import { afterEach, describe, expect, it } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { injectOAuthClient, parseOAuthClient } from '../../../scripts/inject-oauth-client.js';
+import {
+  injectOAuthClient,
+  parseOAuthClient,
+  verifyOAuthClientFile
+} from '../../../scripts/inject-oauth-client.js';
 
 const validClient = {
   installed: {
@@ -30,6 +34,7 @@ describe('OAuth client release injection', () => {
 
     expect(JSON.parse(fs.readFileSync(outputFile, 'utf8'))).toEqual(validClient);
     expect(fs.statSync(outputFile).mode & 0o777).toBe(0o600);
+    expect(verifyOAuthClientFile(outputFile)).toBe(outputFile);
   });
 
   it('rejects missing or malformed release secrets', () => {
@@ -49,6 +54,12 @@ describe('OAuth client release injection', () => {
 
     expect(() => parseOAuthClient(JSON.stringify(clientWithToken))).toThrow(
       'must not contain refresh_token'
+    );
+  });
+
+  it('blocks publishing when the bundled client is missing', () => {
+    expect(() => verifyOAuthClientFile('/missing/google-oauth-client.json')).toThrow(
+      'bundled OAuth client is missing'
     );
   });
 });

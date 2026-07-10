@@ -13,7 +13,7 @@
   "license": "MIT",
   "author": "SuperCorks",
   "bin": {
-    "gswitch": "./bin/gswitch.js"
+    "gswitch": "bin/gswitch.js"
   },
   "files": [
     "bin",
@@ -41,7 +41,9 @@
   "scripts": {
     "start": "node bin/gswitch.js",
     "test": "vitest run",
-    "release:inject-oauth-client": "node scripts/inject-oauth-client.js"
+    "release:inject-oauth-client": "node scripts/inject-oauth-client.js",
+    "release:verify": "node scripts/inject-oauth-client.js --check",
+    "prepublishOnly": "npm run release:verify"
   },
   "devDependencies": {
     "vitest": "^4.0.18"

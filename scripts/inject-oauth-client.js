@@ -67,6 +67,15 @@ export function injectOAuthClient(rawClient, outputFile = defaultOutputFile) {
   return outputFile;
 }
 
+export function verifyOAuthClientFile(inputFile = defaultOutputFile) {
+  if (!fs.existsSync(inputFile)) {
+    throw new Error(`bundled OAuth client is missing: ${inputFile}`);
+  }
+
+  parseOAuthClient(fs.readFileSync(inputFile, 'utf8'));
+  return inputFile;
+}
+
 function isLoopbackRedirect(redirectUri) {
   try {
     const url = new URL(redirectUri);
@@ -78,10 +87,14 @@ function isLoopbackRedirect(redirectUri) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    const outputFile = injectOAuthClient(process.env.GSWITCH_OAUTH_CLIENT_JSON);
-    console.log(`Prepared OAuth client at ${path.relative(process.cwd(), outputFile)}`);
+    const checkOnly = process.argv.includes('--check');
+    const outputFile = checkOnly
+      ? verifyOAuthClientFile()
+      : injectOAuthClient(process.env.GSWITCH_OAUTH_CLIENT_JSON);
+    const action = checkOnly ? 'Verified' : 'Prepared';
+    console.log(`${action} OAuth client at ${path.relative(process.cwd(), outputFile)}`);
   } catch (error) {
-    console.error(`Failed to prepare OAuth client: ${error.message}`);
+    console.error(`OAuth client release check failed: ${error.message}`);
     process.exitCode = 1;
   }
 }
