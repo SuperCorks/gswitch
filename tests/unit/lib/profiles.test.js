@@ -37,6 +37,65 @@ describe('lib/profiles', () => {
     expect(fs.chmod).toHaveBeenCalledWith(adcPath, 0o600);
   });
 
+  it('saves renewal settings with private file permissions', async () => {
+    vi.mocked(fs.writeFile).mockResolvedValue(undefined);
+    vi.mocked(fs.chmod).mockResolvedValue(undefined);
+
+    const settingsPath = await profiles.saveRenewalSettings('rk', {
+      email: 'simon@redkrypton.com',
+      scopes: 'openid,https://www.googleapis.com/auth/drive',
+      clientIdFile: '/tmp/client_secret.json'
+    });
+
+    expect(settingsPath).toBe(
+      path.join(mockHome, '.config/gswitch/profiles/rk/renewal.json')
+    );
+    expect(fs.writeFile).toHaveBeenCalledWith(
+      settingsPath,
+      `${JSON.stringify({
+        version: 1,
+        email: 'simon@redkrypton.com',
+        scopes: 'openid,https://www.googleapis.com/auth/drive',
+        clientIdFile: '/tmp/client_secret.json'
+      }, null, 2)}\n`,
+      { mode: 0o600 }
+    );
+    expect(fs.chmod).toHaveBeenCalledWith(settingsPath, 0o600);
+  });
+
+  it('loads saved renewal settings', async () => {
+    vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify({
+      version: 1,
+      email: 'simon@redkrypton.com',
+      scopes: 'openid,https://www.googleapis.com/auth/drive'
+    }));
+
+    await expect(profiles.loadRenewalSettings('rk')).resolves.toEqual({
+      version: 1,
+      email: 'simon@redkrypton.com',
+      scopes: 'openid,https://www.googleapis.com/auth/drive'
+    });
+  });
+
+  it('returns null when renewal settings have not been saved yet', async () => {
+    vi.mocked(fs.readFile).mockRejectedValue(Object.assign(new Error('ENOENT'), {
+      code: 'ENOENT'
+    }));
+
+    await expect(profiles.loadRenewalSettings('legacy')).resolves.toBeNull();
+  });
+
+  it('rejects malformed renewal settings', async () => {
+    vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify({
+      version: 1,
+      scopes: ['openid']
+    }));
+
+    await expect(profiles.loadRenewalSettings('rk')).rejects.toThrow(
+      "Renewal settings for 'rk' are invalid"
+    );
+  });
+
   it('builds an isolated environment that explicitly shares ADC with gws', async () => {
     vi.spyOn(profiles, 'ensureAdc').mockResolvedValue('/profiles/rk/adc.json');
     vi.spyOn(profiles, 'migrateLegacyGwsCredentials').mockResolvedValue(undefined);

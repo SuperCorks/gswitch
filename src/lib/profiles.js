@@ -5,6 +5,7 @@ import path from 'path';
 const PROFILE_NAME_PATTERN = /^[a-z][-a-z0-9]*$/;
 const GWS_CREDENTIAL_FILES = ['credentials.enc', 'credentials.json'];
 const GWS_ADC_MARKER = 'use-adc';
+const RENEWAL_SETTINGS_FILE = 'renewal.json';
 
 async function fileExists(filePath) {
   try {
@@ -33,6 +34,10 @@ export class ProfileStore {
 
   getAdcPath(name) {
     return path.join(this.getProfileDir(name), 'adc.json');
+  }
+
+  getRenewalSettingsPath(name) {
+    return path.join(this.getProfileDir(name), RENEWAL_SETTINGS_FILE);
   }
 
   getGwsConfigDir(name) {
@@ -97,6 +102,58 @@ export class ProfileStore {
     const adcPath = this.getAdcPath(name);
     await this.copyPrivate(this.getActiveAdcPath(), adcPath);
     return adcPath;
+  }
+
+  async saveRenewalSettings(name, { email, scopes, clientIdFile } = {}) {
+    if (typeof email !== 'string' || email.trim() === '') {
+      throw new Error(`Cannot save renewal settings for '${name}' without an email`);
+    }
+
+    await this.ensureProfile(name);
+    const settingsPath = this.getRenewalSettingsPath(name);
+    const settings = {
+      version: 1,
+      email,
+      ...(scopes ? { scopes } : {}),
+      ...(clientIdFile ? { clientIdFile } : {})
+    };
+
+    await fs.writeFile(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, { mode: 0o600 });
+    await fs.chmod(settingsPath, 0o600);
+    return settingsPath;
+  }
+
+  async loadRenewalSettings(name) {
+    const settingsPath = this.getRenewalSettingsPath(name);
+    let rawSettings;
+
+    try {
+      rawSettings = await fs.readFile(settingsPath, 'utf8');
+    } catch (error) {
+      if (error?.code === 'ENOENT') {
+        return null;
+      }
+      throw new Error(`Failed to read renewal settings for '${name}': ${error.message}`);
+    }
+
+    let settings;
+    try {
+      settings = JSON.parse(rawSettings);
+    } catch {
+      throw new Error(`Renewal settings for '${name}' are invalid`);
+    }
+
+    if (
+      settings?.version !== 1 ||
+      typeof settings.email !== 'string' ||
+      settings.email.trim() === '' ||
+      (settings.scopes !== undefined && typeof settings.scopes !== 'string') ||
+      (settings.clientIdFile !== undefined && typeof settings.clientIdFile !== 'string')
+    ) {
+      throw new Error(`Renewal settings for '${name}' are invalid`);
+    }
+
+    return settings;
   }
 
   async migrateLegacyGwsCredentials(name) {

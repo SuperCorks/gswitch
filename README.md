@@ -108,6 +108,22 @@ Desktop OAuth client configuration is distributed app identity, not a user crede
 
 Running `gswitch new` on an existing configuration will refresh the credentials without recreating the configuration.
 
+### Renew expired credentials
+```bash
+gswitch renew personal
+gswitch renew personal --private
+```
+
+`gswitch renew` reuses the email address, OAuth scopes, and any explicitly selected OAuth client from the profile's most recent successful `gswitch new` or `gswitch renew` flow. It runs the same browser authentication and ADC setup without asking you to re-enter those details. Use `--private` to open the OAuth flows in a Chrome incognito window.
+
+Profiles created before `gswitch renew` do not have saved scope metadata because Google ADC files do not record the requested scope list. Refresh those profiles once with their original setup command, for example:
+
+```bash
+gswitch new personal user@example.com --gmail --calendar --drive
+```
+
+After that one-time refresh, use `gswitch renew personal` for future reauthentication.
+
 ### Switch projects
 ```bash
 gswitch project
@@ -117,7 +133,7 @@ Interactively select a project from your available GCP projects. The current pro
 
 ## How it works
 
-Account profiles live under `~/.config/gswitch/profiles/<name>/`. Existing ADC and `gws` snapshots from older releases are imported into this directory the first time a profile is used; the legacy files are left in place as rollback copies.
+Account profiles live under `~/.config/gswitch/profiles/<name>/`. Each newly authenticated profile stores private renewal metadata in `renewal.json` alongside its ADC so `gswitch renew` can reproduce the original login. Existing ADC and `gws` snapshots from older releases are imported into this directory the first time a profile is used; the legacy files are left in place as rollback copies.
 
 When you switch accounts globally, `gswitch` automatically:
 1. Activates the specified gcloud configuration

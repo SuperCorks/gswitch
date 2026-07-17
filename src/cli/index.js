@@ -8,6 +8,7 @@ import { ui } from '../lib/ui.js';
 import { gcloud } from '../lib/gcloud.js';
 import { gws } from '../lib/gws.js';
 import { accountContext } from '../lib/accountContext.js';
+import { profiles } from '../lib/profiles.js';
 import { resolveLoginScopes, usesWorkspaceScopes } from '../lib/oauthScopes.js';
 import { select, input } from '@inquirer/prompts';
 
@@ -45,6 +46,9 @@ ${chalk.bold('EXAMPLES')}
   $ gswitch new
   $ gswitch new personal user@example.com --gmail --calendar --drive
 
+  ${chalk.dim('# Renew an account with its saved email and scopes')}
+  $ gswitch renew personal
+
 ${chalk.bold('HOW TO ADD AN ACCOUNT')}
   ${chalk.cyan('gswitch new [name] [email]')}
 
@@ -67,6 +71,13 @@ ${chalk.bold('HOW TO ADD AN ACCOUNT')}
     .option('--calendar', 'Add Google Calendar read/write scopes to the shared account credential')
     .option('--drive', 'Add Drive, Google Docs, and Google Sheets read/write scopes to the shared account credential')
     .action((name, email, options) => createAccount(name, email, options));
+
+  program
+    .command('renew')
+    .description('Renew credentials using an account\'s saved email and scopes')
+    .argument('<name>', 'Name of the configuration to renew')
+    .option('--private', 'Open OAuth URLs in a Chrome incognito window')
+    .action((name, options) => renewAccount(name, options));
 
   program
     .command('run')
@@ -191,6 +202,11 @@ export async function createAccount(name, email, options = {}) {
         // 6. Save ADC in the account profile.
         console.log(ui.bold(`\n6. Saving ADC file for '${name}'...`));
         await gcloud.saveAdc(name);
+        await profiles.saveRenewalSettings(name, {
+            email,
+            scopes,
+            ...(options.clientIdFile ? { clientIdFile } : {})
+        });
 
         // 7. Point gws at the same user credential instead of running another OAuth flow.
         console.log(ui.bold('\n7. Setting up Google Workspace CLI (gws)...'));
@@ -228,6 +244,26 @@ export async function createAccount(name, email, options = {}) {
         console.error(ui.error(`\n❌ Failed to setup configuration: ${error.message}`));
         process.exit(1);
     }
+}
+
+export async function renewAccount(name, options = {}) {
+    const settings = await profiles.loadRenewalSettings(name);
+    if (!settings) {
+        throw new Error(
+            `Renewal details are missing for '${name}' because this profile predates ` +
+            `gswitch renew. Run gswitch new ${name} <email> with the profile's original ` +
+            `scope flags once; future renewals can use gswitch renew ${name}.`
+        );
+    }
+
+    const savedOptions = {
+        ...(settings.scopes ? { scopes: settings.scopes } : {}),
+        ...(settings.clientIdFile ? { clientIdFile: settings.clientIdFile } : {})
+    };
+    return createAccount(name, settings.email, {
+        ...savedOptions,
+        ...(options.private ? { private: true } : {})
+    });
 }
 
 export async function runInAccount(account, command) {
@@ -410,9 +446,7 @@ async function switchAccount(account) {
   if (!adcUpdated) {
     console.log(ui.warn(`⚠️  Warning: Application-default credentials file is missing for '${account}'.`));
     console.log(ui.hint('Refresh the account profile:'));
-    const currentAccountEmail = await gcloud.getCurrentAccount();
-    console.log(ui.cmd(`gswitch new ${account}${currentAccountEmail ? ` ${currentAccountEmail}` : ''}`));
-    console.log(ui.dim('Add only the --gmail, --calendar, and --drive flags this profile needs.'));
+    console.log(ui.cmd(`gswitch renew ${account}`));
   }
 
   const gwsInstalled = await gws.isInstalled();
@@ -423,11 +457,7 @@ async function switchAccount(account) {
     } else {
       console.log(ui.warn(`⚠️  Warning: Google Workspace CLI credentials are missing for '${account}'.`));
       console.log(ui.hint('Refresh the shared account credential:'));
-      const currentAccountEmail = await gcloud.getCurrentAccount();
-      console.log(ui.cmd(
-        `gswitch new ${account}${currentAccountEmail ? ` ${currentAccountEmail}` : ''} --gmail --calendar --drive`
-      ));
-      console.log(ui.dim('Remove any Workspace scope flags the profile does not need.'));
+      console.log(ui.cmd(`gswitch renew ${account}`));
     }
   }
 

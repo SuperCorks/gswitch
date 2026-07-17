@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
-import { createAccount, resolveClientIdFile, run } from '../../../src/cli/index.js';
+import { createAccount, renewAccount, resolveClientIdFile, run } from '../../../src/cli/index.js';
 import { gcloud } from '../../../src/lib/gcloud.js';
 import { gws } from '../../../src/lib/gws.js';
 import { accountContext } from '../../../src/lib/accountContext.js';
+import { profiles } from '../../../src/lib/profiles.js';
 import {
   GCLOUD_ADC_IDENTITY_SCOPES,
   GCLOUD_ADC_SCOPE,
@@ -18,6 +19,7 @@ describe('cli/createAccount', () => {
     vi.spyOn(gws, 'hasClientSecret').mockResolvedValue(true);
     vi.spyOn(gws, 'useAdcCredentials').mockResolvedValue(true);
     vi.spyOn(gws, 'updateCredentials').mockResolvedValue(true);
+    vi.spyOn(profiles, 'saveRenewalSettings').mockResolvedValue('/profiles/test/renewal.json');
   });
 
   afterEach(() => {
@@ -93,6 +95,11 @@ describe('cli/createAccount', () => {
       clientIdFile: '/tmp/client_secret.json'
     });
     expect(loginAdcSpy).toHaveBeenCalledWith('hello@peachystudio.com', {
+      scopes: expectedScopes,
+      clientIdFile: '/tmp/client_secret.json'
+    });
+    expect(profiles.saveRenewalSettings).toHaveBeenCalledWith('peachy', {
+      email: 'hello@peachystudio.com',
       scopes: expectedScopes,
       clientIdFile: '/tmp/client_secret.json'
     });
@@ -255,6 +262,72 @@ describe('cli/createAccount', () => {
       '/profiles/peachy/adc.json'
     );
     expect(gws.updateCredentials).toHaveBeenCalledWith('peachy');
+  });
+});
+
+describe('cli/renewAccount', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(gws, 'isInstalled').mockResolvedValue(false);
+    vi.spyOn(gws, 'hasClientSecret').mockResolvedValue(true);
+    vi.spyOn(gws, 'useAdcCredentials').mockResolvedValue(true);
+    vi.spyOn(gws, 'updateCredentials').mockResolvedValue(true);
+    vi.spyOn(profiles, 'saveRenewalSettings').mockResolvedValue('/profiles/rk/renewal.json');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('refreshes an existing account with its saved email and scopes', async () => {
+    const scopes = [
+      ...GCLOUD_ADC_IDENTITY_SCOPES,
+      GCLOUD_ADC_SCOPE,
+      ...LOGIN_SCOPE_GROUPS.drive
+    ].join(',');
+
+    vi.spyOn(profiles, 'loadRenewalSettings').mockResolvedValue({
+      version: 1,
+      email: 'simon@redkrypton.com',
+      scopes,
+      clientIdFile: '/tmp/client_secret.json'
+    });
+    vi.spyOn(gcloud, 'configurationExists').mockResolvedValue(true);
+    vi.spyOn(gcloud, 'activateConfiguration').mockResolvedValue(undefined);
+    vi.spyOn(gcloud, 'setAccount').mockResolvedValue(undefined);
+    vi.spyOn(gcloud, 'saveAdc').mockResolvedValue(undefined);
+    vi.spyOn(gcloud, 'updateAdc').mockResolvedValue(true);
+    const loginSpy = vi.spyOn(gcloud, 'login').mockResolvedValue(undefined);
+    const loginAdcSpy = vi.spyOn(gcloud, 'loginAdc').mockResolvedValue(undefined);
+    vi.spyOn(fs, 'existsSync').mockReturnValue(true);
+
+    await renewAccount('rk', { private: true });
+
+    expect(loginSpy).toHaveBeenCalledWith('simon@redkrypton.com', {
+      scopes,
+      clientIdFile: '/tmp/client_secret.json',
+      private: true,
+      force: true
+    });
+    expect(loginAdcSpy).toHaveBeenCalledWith('simon@redkrypton.com', {
+      scopes,
+      clientIdFile: '/tmp/client_secret.json',
+      private: true
+    });
+    expect(profiles.saveRenewalSettings).toHaveBeenCalledWith('rk', {
+      email: 'simon@redkrypton.com',
+      scopes,
+      clientIdFile: '/tmp/client_secret.json'
+    });
+  });
+
+  it('explains how to bootstrap renewal for a legacy profile', async () => {
+    vi.spyOn(profiles, 'loadRenewalSettings').mockResolvedValue(null);
+
+    await expect(renewAccount('rk')).rejects.toThrow(
+      'Run gswitch new rk <email> with the profile\'s original scope flags once'
+    );
   });
 });
 
