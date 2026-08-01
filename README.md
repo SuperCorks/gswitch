@@ -90,9 +90,15 @@ Use `--scopes` to pass a comma-separated scope list to `gcloud auth application-
 Use the helper flags to add common Google Workspace permissions to the shared ADC used by Google client libraries and `gws`:
 - `--gmail` adds Gmail read/write email access
 - `--calendar` adds Google Calendar read/write access
-- `--drive` adds Google Drive, Google Docs, and Google Sheets read/write access
+- `--drive` adds Google Drive read/write access. Google accepts this same scope
+  for Drive, Docs, and Sheets API operations, so gswitch does not request the
+  redundant Docs and Sheets scopes.
 
 When any helper flag is used, `gswitch` also includes the default Google Cloud ADC scope so the resulting ADC file still works for Google Cloud SDK workflows.
+
+The bundled production OAuth client is limited to the scopes requested by these
+helper flags plus Google Cloud and account identity. To request a custom scope,
+provide your own Desktop OAuth client with `--client-id-file`.
 
 If `gws` is installed, `gswitch new` marks the profile to use its ADC directly. Scoped commands point `gws` at `adc.json` instead of duplicating the credential. This avoids a third browser login and keeps Google Cloud libraries and Workspace commands on the same account and scope grant.
 
@@ -105,6 +111,44 @@ Google blocks the default ADC OAuth client when you request Workspace scopes suc
 Maintainers publish by updating the package version and pushing the matching `v<version>` tag. The publish workflow tests the tagged commit, injects `GSWITCH_OAUTH_CLIENT_JSON`, verifies the package contents, and authenticates to npm through trusted publishing with short-lived OIDC credentials.
 
 Desktop OAuth client configuration is distributed app identity, not a user credential. The package never includes user access tokens, refresh tokens, ADC files, or `gws` credentials.
+
+### OAuth verification reviewer instructions
+
+`gswitch` is a local CLI integration platform, not a hosted application. It has
+no separate username, password, test tenant, or server-side account. Reviewers
+can install the public package and authenticate with a Google-owned test account:
+
+```bash
+npm install -g @supercorks/gswitch
+gswitch new review reviewer@example.com --gmail --calendar --drive
+```
+
+The command opens the Google OAuth flow, stores the resulting credential only on
+the reviewer's computer, and configures both Application Default Credentials and
+`gws` to use it. The requested production scopes map to user-selected features:
+
+| Scope | User-facing purpose |
+| --- | --- |
+| `openid` and `userinfo.email` | Confirm that OAuth returned the account email selected by the user. |
+| `cloud-platform` | Let local `gcloud`, Google client libraries, agents, and scripts operate on the user's accessible Google Cloud resources. |
+| `gmail.modify` | Let user-directed `gws gmail` commands read mail and create, update, or remove labels without permanently deleting messages. |
+| `calendar` | Let user-directed `gws calendar` commands read and manage calendars and events. |
+| `drive` | Let user-directed `gws drive`, `gws docs`, and `gws sheets` commands find and manage existing Drive files, documents, and spreadsheets. |
+
+After authentication, reviewers can exercise each opted-in service through the
+isolated profile without changing another active Google account:
+
+```bash
+gswitch run review -- gcloud projects list
+gswitch run review -- gws gmail users labels list --params '{"userId":"me"}'
+gswitch run review -- gws calendar calendarList list
+gswitch run review -- gws drive files list --params '{"pageSize":10}'
+```
+
+The broader Drive scope is necessary because this CLI is designed for local
+agents and scripts to find and work with files that already exist in the user's
+Drive. The narrower `drive.file` scope only covers files selected through a file
+picker or created by the app; a local CLI has no file-picker interaction.
 
 Running `gswitch new` on an existing configuration will refresh the credentials without recreating the configuration.
 

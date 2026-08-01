@@ -1,5 +1,9 @@
 export const GCLOUD_ADC_SCOPE = 'https://www.googleapis.com/auth/cloud-platform';
 
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive';
+const DOCUMENTS_SCOPE = 'https://www.googleapis.com/auth/documents';
+const SPREADSHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
+
 export const GCLOUD_ADC_IDENTITY_SCOPES = Object.freeze([
   'openid',
   'https://www.googleapis.com/auth/userinfo.email'
@@ -8,12 +12,16 @@ export const GCLOUD_ADC_IDENTITY_SCOPES = Object.freeze([
 export const LOGIN_SCOPE_GROUPS = Object.freeze({
   gmail: ['https://www.googleapis.com/auth/gmail.modify'],
   calendar: ['https://www.googleapis.com/auth/calendar'],
-  drive: [
-    'https://www.googleapis.com/auth/drive',
-    'https://www.googleapis.com/auth/documents',
-    'https://www.googleapis.com/auth/spreadsheets'
-  ]
+  drive: [DRIVE_SCOPE]
 });
+
+export const PRODUCTION_OAUTH_CLIENT_SCOPES = Object.freeze([
+  ...GCLOUD_ADC_IDENTITY_SCOPES,
+  GCLOUD_ADC_SCOPE,
+  ...LOGIN_SCOPE_GROUPS.gmail,
+  ...LOGIN_SCOPE_GROUPS.calendar,
+  ...LOGIN_SCOPE_GROUPS.drive
+]);
 
 const WORKSPACE_SCOPE_PREFIXES = Object.freeze([
   'https://mail.google.com/',
@@ -37,14 +45,27 @@ export function parseScopes(rawScopes) {
 }
 
 export function normalizeScopes(rawScopes) {
-  const scopes = parseScopes(rawScopes);
-  return scopes.length > 0 ? scopes.join(',') : undefined;
+  return mergeScopes(rawScopes);
 }
 
 export function mergeScopes(...scopeLists) {
   const scopes = scopeLists.flatMap(scopeList => parseScopes(scopeList));
-  const uniqueScopes = [...new Set(scopes)];
+  let uniqueScopes = [...new Set(scopes)];
+
+  // Full Drive access is accepted by the Docs and Sheets APIs. Drop the two
+  // narrower duplicates so renewals from older releases stay least-privilege.
+  if (uniqueScopes.includes(DRIVE_SCOPE)) {
+    uniqueScopes = uniqueScopes.filter(scope => (
+      scope !== DOCUMENTS_SCOPE && scope !== SPREADSHEETS_SCOPE
+    ));
+  }
+
   return uniqueScopes.length > 0 ? uniqueScopes.join(',') : undefined;
+}
+
+export function getUnsupportedProductionScopes(rawScopes) {
+  const supportedScopes = new Set(PRODUCTION_OAUTH_CLIENT_SCOPES);
+  return parseScopes(normalizeScopes(rawScopes)).filter(scope => !supportedScopes.has(scope));
 }
 
 export function resolveLoginScopes(options = {}) {

@@ -353,6 +353,18 @@ describe('cli OAuth client resolution', () => {
       resolveClientIdFile('/tmp/client.json', LOGIN_SCOPE_GROUPS.gmail[0])
     ).rejects.toThrow('/tmp/client.json');
   });
+
+  it('requires a custom client for scopes outside the bundled production set', async () => {
+    vi.spyOn(fs, 'existsSync').mockImplementation(filePath => (
+      !String(filePath).endsWith('/.config/gswitch/google-oauth-client.json') &&
+      String(filePath).endsWith('/src/config/google-oauth-client.json')
+    ));
+    vi.spyOn(gws, 'hasClientSecret').mockResolvedValue(true);
+
+    await expect(
+      resolveClientIdFile(undefined, 'https://www.googleapis.com/auth/contacts')
+    ).rejects.toThrow('cannot request undeclared scope(s)');
+  });
 });
 
 describe('cli run command', () => {

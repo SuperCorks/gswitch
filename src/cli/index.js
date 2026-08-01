@@ -9,7 +9,11 @@ import { gcloud } from '../lib/gcloud.js';
 import { gws } from '../lib/gws.js';
 import { accountContext } from '../lib/accountContext.js';
 import { profiles } from '../lib/profiles.js';
-import { resolveLoginScopes, usesWorkspaceScopes } from '../lib/oauthScopes.js';
+import {
+  getUnsupportedProductionScopes,
+  resolveLoginScopes,
+  usesWorkspaceScopes
+} from '../lib/oauthScopes.js';
 import { select, input } from '@inquirer/prompts';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -69,7 +73,7 @@ ${chalk.bold('HOW TO ADD AN ACCOUNT')}
     .option('--client-id-file <path>', 'Desktop OAuth client JSON for application-default login')
     .option('--gmail', 'Add Gmail read/write scopes to the shared account credential')
     .option('--calendar', 'Add Google Calendar read/write scopes to the shared account credential')
-    .option('--drive', 'Add Drive, Google Docs, and Google Sheets read/write scopes to the shared account credential')
+    .option('--drive', 'Add Drive read/write access, including Docs and Sheets API operations')
     .action((name, email, options) => createAccount(name, email, options));
 
   program
@@ -292,19 +296,29 @@ export async function resolveClientIdFile(rawClientIdFile, scopes) {
         return requestedClientIdFile;
     }
 
-    const defaultClientIdFiles = [
-        localGoogleOAuthClientFile,
-        productionGoogleOAuthClientFile
-    ];
+    if (fs.existsSync(localGoogleOAuthClientFile)) {
+        if (!usesWorkspaceScopes(scopes) || (await gws.hasClientSecret(localGoogleOAuthClientFile))) {
+            return localGoogleOAuthClientFile;
+        }
+    }
 
-    for (const clientIdFile of defaultClientIdFiles) {
-        if (!fs.existsSync(clientIdFile)) {
-            continue;
+    if (fs.existsSync(productionGoogleOAuthClientFile)) {
+        if (usesWorkspaceScopes(scopes) && !(await gws.hasClientSecret(productionGoogleOAuthClientFile))) {
+            throw new Error(
+                `Workspace OAuth scopes require a Desktop OAuth client JSON containing client_secret: ` +
+                productionGoogleOAuthClientFile
+            );
         }
 
-        if (!usesWorkspaceScopes(scopes) || (await gws.hasClientSecret(clientIdFile))) {
-            return clientIdFile;
+        const unsupportedScopes = getUnsupportedProductionScopes(scopes);
+        if (unsupportedScopes.length > 0) {
+            throw new Error(
+                `The bundled gswitch OAuth client cannot request undeclared scope(s): ` +
+                `${unsupportedScopes.join(', ')}. Pass --client-id-file <path> for custom scopes.`
+            );
         }
+
+        return productionGoogleOAuthClientFile;
     }
 
     if (!usesWorkspaceScopes(scopes)) {
