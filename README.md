@@ -62,6 +62,19 @@ gswitch ls
 
 Shows all configurations with their associated email addresses.
 
+### Remove an account alias
+```bash
+gswitch rm personal
+
+# Skip the confirmation prompt for scripts
+gswitch rm personal --force
+```
+
+This deletes the named gcloud configuration and its stored `gswitch` profile,
+including any legacy alias-scoped ADC and `gws` credential files. You must switch
+to another alias before removing the active one. Removing an alias does not revoke
+the underlying Google account login because another configuration may share it.
+
 ### Add a new account
 ```bash
 gswitch new

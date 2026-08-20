@@ -63,6 +63,42 @@ describe('lib/profiles', () => {
     expect(fs.chmod).toHaveBeenCalledWith(settingsPath, 0o600);
   });
 
+  it('detects current and legacy stored profile data', async () => {
+    vi.mocked(fs.access)
+      .mockRejectedValueOnce(new Error('ENOENT'))
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValue(new Error('ENOENT'));
+
+    await expect(profiles.hasStoredProfile('personal')).resolves.toBe(true);
+  });
+
+  it('removes current and legacy profile data', async () => {
+    vi.mocked(fs.rm).mockResolvedValue(undefined);
+
+    await profiles.removeProfile('personal');
+
+    expect(fs.rm).toHaveBeenNthCalledWith(
+      1,
+      path.join(mockHome, '.config/gswitch/profiles/personal'),
+      { recursive: true, force: true }
+    );
+    expect(fs.rm).toHaveBeenNthCalledWith(
+      2,
+      path.join(mockHome, '.config/gcloud/application_default_credentials_personal.json'),
+      { force: true }
+    );
+    expect(fs.rm).toHaveBeenNthCalledWith(
+      3,
+      path.join(mockHome, '.config/gws/credentials_personal.enc'),
+      { force: true }
+    );
+    expect(fs.rm).toHaveBeenNthCalledWith(
+      4,
+      path.join(mockHome, '.config/gws/credentials_personal.json'),
+      { force: true }
+    );
+  });
+
   it('loads saved renewal settings', async () => {
     vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify({
       version: 1,

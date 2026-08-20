@@ -1,6 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
-import { createAccount, renewAccount, resolveClientIdFile, run } from '../../../src/cli/index.js';
+import { confirm } from '@inquirer/prompts';
+import {
+  createAccount,
+  removeAccount,
+  renewAccount,
+  resolveClientIdFile,
+  run
+} from '../../../src/cli/index.js';
 import { gcloud } from '../../../src/lib/gcloud.js';
 import { gws } from '../../../src/lib/gws.js';
 import { accountContext } from '../../../src/lib/accountContext.js';
@@ -10,6 +17,12 @@ import {
   GCLOUD_ADC_SCOPE,
   LOGIN_SCOPE_GROUPS
 } from '../../../src/lib/oauthScopes.js';
+
+vi.mock('@inquirer/prompts', () => ({
+  select: vi.fn(),
+  input: vi.fn(),
+  confirm: vi.fn()
+}));
 
 describe('cli/createAccount', () => {
   beforeEach(() => {
@@ -364,6 +377,105 @@ describe('cli OAuth client resolution', () => {
     await expect(
       resolveClientIdFile(undefined, 'https://www.googleapis.com/auth/contacts')
     ).rejects.toThrow('cannot request undeclared scope(s)');
+  });
+});
+
+describe('cli/removeAccount', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.mocked(confirm).mockReset();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('deletes the configuration before deleting its stored profile', async () => {
+    const callOrder = [];
+    vi.spyOn(gcloud, 'configurationExists').mockResolvedValue(true);
+    vi.spyOn(gcloud, 'getActiveConfiguration').mockResolvedValue('default');
+    vi.spyOn(profiles, 'hasStoredProfile').mockResolvedValue(true);
+    vi.spyOn(gcloud, 'deleteConfiguration').mockImplementation(async () => {
+      callOrder.push('configuration');
+    });
+    vi.spyOn(profiles, 'removeProfile').mockImplementation(async () => {
+      callOrder.push('profile');
+    });
+
+    await expect(removeAccount('personal', { force: true })).resolves.toBe(true);
+
+    expect(callOrder).toEqual(['configuration', 'profile']);
+  });
+
+  it('registers rm and passes --force through the command parser', async () => {
+    const originalArgv = process.argv;
+    vi.spyOn(gcloud, 'configurationExists').mockResolvedValue(true);
+    vi.spyOn(gcloud, 'getActiveConfiguration').mockResolvedValue('default');
+    vi.spyOn(profiles, 'hasStoredProfile').mockResolvedValue(true);
+    const deleteConfiguration = vi.spyOn(gcloud, 'deleteConfiguration').mockResolvedValue(undefined);
+    vi.spyOn(profiles, 'removeProfile').mockResolvedValue(undefined);
+    process.argv = ['node', 'gswitch', 'rm', 'personal', '--force'];
+
+    try {
+      await run();
+    } finally {
+      process.argv = originalArgv;
+    }
+
+    expect(deleteConfiguration).toHaveBeenCalledWith('personal');
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it('removes an orphaned stored profile without deleting a missing configuration', async () => {
+    vi.spyOn(gcloud, 'configurationExists').mockResolvedValue(false);
+    vi.spyOn(gcloud, 'getActiveConfiguration').mockResolvedValue('default');
+    vi.spyOn(profiles, 'hasStoredProfile').mockResolvedValue(true);
+    const deleteConfiguration = vi.spyOn(gcloud, 'deleteConfiguration').mockResolvedValue(undefined);
+    const removeProfile = vi.spyOn(profiles, 'removeProfile').mockResolvedValue(undefined);
+
+    await removeAccount('personal', { force: true });
+
+    expect(deleteConfiguration).not.toHaveBeenCalled();
+    expect(removeProfile).toHaveBeenCalledWith('personal');
+  });
+
+  it('cancels without deleting anything when confirmation is declined', async () => {
+    vi.spyOn(gcloud, 'configurationExists').mockResolvedValue(true);
+    vi.spyOn(gcloud, 'getActiveConfiguration').mockResolvedValue('default');
+    vi.spyOn(profiles, 'hasStoredProfile').mockResolvedValue(true);
+    vi.mocked(confirm).mockResolvedValue(false);
+    const deleteConfiguration = vi.spyOn(gcloud, 'deleteConfiguration').mockResolvedValue(undefined);
+    const removeProfile = vi.spyOn(profiles, 'removeProfile').mockResolvedValue(undefined);
+
+    await expect(removeAccount('personal')).resolves.toBe(false);
+
+    expect(deleteConfiguration).not.toHaveBeenCalled();
+    expect(removeProfile).not.toHaveBeenCalled();
+  });
+
+  it('refuses to remove the active alias', async () => {
+    vi.spyOn(gcloud, 'configurationExists').mockResolvedValue(true);
+    vi.spyOn(gcloud, 'getActiveConfiguration').mockResolvedValue('personal');
+    vi.spyOn(profiles, 'hasStoredProfile').mockResolvedValue(true);
+    const deleteConfiguration = vi.spyOn(gcloud, 'deleteConfiguration').mockResolvedValue(undefined);
+    const removeProfile = vi.spyOn(profiles, 'removeProfile').mockResolvedValue(undefined);
+
+    await expect(removeAccount('personal', { force: true })).rejects.toThrow(
+      "Cannot remove active account alias 'personal'"
+    );
+
+    expect(deleteConfiguration).not.toHaveBeenCalled();
+    expect(removeProfile).not.toHaveBeenCalled();
+  });
+
+  it('rejects aliases with no configuration or stored profile', async () => {
+    vi.spyOn(gcloud, 'configurationExists').mockResolvedValue(false);
+    vi.spyOn(gcloud, 'getActiveConfiguration').mockResolvedValue('default');
+    vi.spyOn(profiles, 'hasStoredProfile').mockResolvedValue(false);
+
+    await expect(removeAccount('missing', { force: true })).rejects.toThrow(
+      "Account alias 'missing' does not exist"
+    );
   });
 });
 
