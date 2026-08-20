@@ -14,7 +14,7 @@ import {
   resolveLoginScopes,
   usesWorkspaceScopes
 } from '../lib/oauthScopes.js';
-import { select, input } from '@inquirer/prompts';
+import { select, input, confirm } from '@inquirer/prompts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -53,6 +53,9 @@ ${chalk.bold('EXAMPLES')}
   ${chalk.dim('# Renew an account with its saved email and scopes')}
   $ gswitch renew personal
 
+  ${chalk.dim('# Remove an account alias and its stored credentials')}
+  $ gswitch rm personal
+
 ${chalk.bold('HOW TO ADD AN ACCOUNT')}
   ${chalk.cyan('gswitch new [name] [email]')}
 
@@ -82,6 +85,13 @@ ${chalk.bold('HOW TO ADD AN ACCOUNT')}
     .argument('<name>', 'Name of the configuration to renew')
     .option('--private', 'Open OAuth URLs in a Chrome incognito window')
     .action((name, options) => renewAccount(name, options));
+
+  program
+    .command('rm')
+    .description('Remove a gcloud configuration and its stored gswitch credentials')
+    .argument('<alias>', 'Configuration alias to remove')
+    .option('-f, --force', 'Remove without confirmation')
+    .action((alias, options) => removeAccount(alias, options));
 
   program
     .command('run')
@@ -268,6 +278,56 @@ export async function renewAccount(name, options = {}) {
         ...savedOptions,
         ...(options.private ? { private: true } : {})
     });
+}
+
+export async function removeAccount(alias, options = {}) {
+    profiles.validateName(alias);
+
+    const [configurationExists, storedProfileExists, activeConfiguration] = await Promise.all([
+        gcloud.configurationExists(alias),
+        profiles.hasStoredProfile(alias),
+        gcloud.getActiveConfiguration()
+    ]);
+
+    if (!configurationExists && !storedProfileExists) {
+        throw new Error(`Account alias '${alias}' does not exist`);
+    }
+
+    if (activeConfiguration === alias) {
+        throw new Error(
+            `Cannot remove active account alias '${alias}'. Switch to another alias first.`
+        );
+    }
+
+    if (!options.force) {
+        let shouldRemove;
+        try {
+            shouldRemove = await confirm({
+                message: `Remove '${alias}' and its locally stored gswitch credentials?`,
+                default: false
+            });
+        } catch (error) {
+            if (isUserCancellation(error)) {
+                console.log(ui.dim('Removal cancelled.'));
+                return false;
+            }
+            throw error;
+        }
+
+        if (!shouldRemove) {
+            console.log(ui.dim('Removal cancelled.'));
+            return false;
+        }
+    }
+
+    if (configurationExists) {
+        await gcloud.deleteConfiguration(alias);
+    }
+    await profiles.removeProfile(alias);
+
+    console.log(ui.success(`Removed account alias '${alias}' and its stored gswitch credentials.`));
+    console.log(ui.dim('The underlying Google account login was not revoked.'));
+    return true;
 }
 
 export async function runInAccount(account, command) {

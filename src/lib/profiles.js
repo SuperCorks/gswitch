@@ -104,6 +104,25 @@ export class ProfileStore {
     return adcPath;
   }
 
+  async hasStoredProfile(name) {
+    const paths = [
+      this.getProfileDir(name),
+      this.getLegacyAdcPath(name),
+      ...GWS_CREDENTIAL_FILES.map(fileName => this.getLegacyGwsCredentialPath(name, fileName))
+    ];
+    const existingPaths = await Promise.all(paths.map(fileExists));
+    return existingPaths.some(Boolean);
+  }
+
+  async removeProfile(name) {
+    await fs.rm(this.getProfileDir(name), { recursive: true, force: true });
+    await fs.rm(this.getLegacyAdcPath(name), { force: true });
+
+    for (const fileName of GWS_CREDENTIAL_FILES) {
+      await fs.rm(this.getLegacyGwsCredentialPath(name, fileName), { force: true });
+    }
+  }
+
   async saveRenewalSettings(name, { email, scopes, clientIdFile } = {}) {
     if (typeof email !== 'string' || email.trim() === '') {
       throw new Error(`Cannot save renewal settings for '${name}' without an email`);

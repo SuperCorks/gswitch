@@ -78,6 +78,26 @@ describe('lib/gcloud', () => {
         { stdio: 'inherit' }
       );
     });
+
+    it('should delete configurations non-interactively', async () => {
+      vi.mocked(execaModule.execa).mockResolvedValue({ stdout: '' });
+
+      await gcloud.deleteConfiguration('personal');
+
+      expect(execaModule.execa).toHaveBeenCalledWith(
+        'gcloud',
+        ['config', 'configurations', 'delete', 'personal', '--quiet'],
+        { timeout: 10000 }
+      );
+    });
+
+    it('should explain configuration deletion failures', async () => {
+      vi.mocked(execaModule.execa).mockRejectedValue(new Error('Command failed'));
+
+      await expect(gcloud.deleteConfiguration('personal')).rejects.toThrow(
+        "Failed to delete configuration 'personal': Command failed"
+      );
+    });
   });
 
   describe('project info', () => {

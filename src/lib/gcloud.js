@@ -192,6 +192,16 @@ export class GCloud {
     }
   }
 
+  async deleteConfiguration(name) {
+    try {
+      await execa('gcloud', ['config', 'configurations', 'delete', name, '--quiet'], {
+        timeout: 10000
+      });
+    } catch (error) {
+      throw new Error(`Failed to delete configuration '${name}': ${error.message}`);
+    }
+  }
+
   async setAccount(email) {
     await execa('gcloud', ['config', 'set', 'account', email], { stdio: 'inherit' });
   }
