@@ -33,6 +33,7 @@ describe('cli/createAccount', () => {
     vi.spyOn(gws, 'useAdcCredentials').mockResolvedValue(true);
     vi.spyOn(gws, 'updateCredentials').mockResolvedValue(true);
     vi.spyOn(profiles, 'saveRenewalSettings').mockResolvedValue('/profiles/test/renewal.json');
+    vi.spyOn(gcloud, 'setCredentialFileOverride').mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -49,9 +50,6 @@ describe('cli/createAccount', () => {
     vi.spyOn(gcloud, 'activateConfiguration').mockImplementation(async (name) => {
       callOrder.push(`activate:${name}`);
     });
-    vi.spyOn(gcloud, 'login').mockImplementation(async (email) => {
-      callOrder.push(`login:${email}`);
-    });
     vi.spyOn(gcloud, 'setAccount').mockImplementation(async (email) => {
       callOrder.push(`account:${email}`);
     });
@@ -60,6 +58,9 @@ describe('cli/createAccount', () => {
     });
     vi.spyOn(gcloud, 'saveAdc').mockImplementation(async (name) => {
       callOrder.push(`save:${name}`);
+    });
+    vi.mocked(gcloud.setCredentialFileOverride).mockImplementation(async (name) => {
+      callOrder.push(`gcloud-credential:${name}`);
     });
     vi.spyOn(gcloud, 'updateAdc').mockImplementation(async (name) => {
       callOrder.push(`restore:${name}`);
@@ -71,16 +72,16 @@ describe('cli/createAccount', () => {
     expect(callOrder).toEqual([
       'create:peachy',
       'activate:peachy',
-      'login:hello@peachystudio.com',
-      'account:hello@peachystudio.com',
       'adc:hello@peachystudio.com',
       'save:peachy',
+      'account:hello@peachystudio.com',
+      'gcloud-credential:peachy',
       'activate:peachy',
       'restore:peachy'
     ]);
   });
 
-  it('passes normalized scopes to both auth steps', async () => {
+  it('passes normalized scopes to the shared OAuth flow', async () => {
     vi.spyOn(gcloud, 'configurationExists').mockResolvedValue(false);
     vi.spyOn(gcloud, 'createConfiguration').mockResolvedValue(undefined);
     vi.spyOn(gcloud, 'activateConfiguration').mockResolvedValue(undefined);
@@ -88,7 +89,6 @@ describe('cli/createAccount', () => {
     vi.spyOn(gcloud, 'saveAdc').mockResolvedValue(undefined);
     vi.spyOn(gcloud, 'updateAdc').mockResolvedValue(true);
 
-    const loginSpy = vi.spyOn(gcloud, 'login').mockResolvedValue(undefined);
     const loginAdcSpy = vi.spyOn(gcloud, 'loginAdc').mockResolvedValue(undefined);
     vi.spyOn(fs, 'existsSync').mockReturnValue(true);
 
@@ -103,10 +103,6 @@ describe('cli/createAccount', () => {
       GCLOUD_ADC_SCOPE
     ].join(',');
 
-    expect(loginSpy).toHaveBeenCalledWith('hello@peachystudio.com', {
-      scopes: expectedScopes,
-      clientIdFile: '/tmp/client_secret.json'
-    });
     expect(loginAdcSpy).toHaveBeenCalledWith('hello@peachystudio.com', {
       scopes: expectedScopes,
       clientIdFile: '/tmp/client_secret.json'
@@ -118,7 +114,7 @@ describe('cli/createAccount', () => {
     });
   });
 
-  it('forces browser auth when refreshing an existing account', async () => {
+  it('does not run a separate Cloud SDK OAuth flow when refreshing an account', async () => {
     vi.spyOn(gcloud, 'configurationExists').mockResolvedValue(true);
     vi.spyOn(gcloud, 'createConfiguration').mockResolvedValue(undefined);
     vi.spyOn(gcloud, 'activateConfiguration').mockResolvedValue(undefined);
@@ -133,9 +129,7 @@ describe('cli/createAccount', () => {
     await createAccount('rk', 'simon@redkrypton.com');
 
     expect(gcloud.createConfiguration).not.toHaveBeenCalled();
-    expect(loginSpy).toHaveBeenCalledWith('simon@redkrypton.com', expect.objectContaining({
-      force: true
-    }));
+    expect(loginSpy).not.toHaveBeenCalled();
   });
 
   it('expands helper permission flags into login scopes', async () => {
@@ -146,7 +140,6 @@ describe('cli/createAccount', () => {
     vi.spyOn(gcloud, 'saveAdc').mockResolvedValue(undefined);
     vi.spyOn(gcloud, 'updateAdc').mockResolvedValue(true);
 
-    const loginSpy = vi.spyOn(gcloud, 'login').mockResolvedValue(undefined);
     const loginAdcSpy = vi.spyOn(gcloud, 'loginAdc').mockResolvedValue(undefined);
     vi.spyOn(fs, 'existsSync').mockReturnValue(true);
 
@@ -165,13 +158,6 @@ describe('cli/createAccount', () => {
       ...LOGIN_SCOPE_GROUPS.drive
     ].join(',');
 
-    expect(loginSpy).toHaveBeenCalledWith('hello@peachystudio.com', {
-      gmail: true,
-      calendar: true,
-      drive: true,
-      clientIdFile: '/tmp/client_secret.json',
-      scopes: expectedScopes
-    });
     expect(loginAdcSpy).toHaveBeenCalledWith('hello@peachystudio.com', {
       gmail: true,
       calendar: true,
@@ -287,6 +273,7 @@ describe('cli/renewAccount', () => {
     vi.spyOn(gws, 'useAdcCredentials').mockResolvedValue(true);
     vi.spyOn(gws, 'updateCredentials').mockResolvedValue(true);
     vi.spyOn(profiles, 'saveRenewalSettings').mockResolvedValue('/profiles/rk/renewal.json');
+    vi.spyOn(gcloud, 'setCredentialFileOverride').mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -311,22 +298,16 @@ describe('cli/renewAccount', () => {
     vi.spyOn(gcloud, 'setAccount').mockResolvedValue(undefined);
     vi.spyOn(gcloud, 'saveAdc').mockResolvedValue(undefined);
     vi.spyOn(gcloud, 'updateAdc').mockResolvedValue(true);
-    const loginSpy = vi.spyOn(gcloud, 'login').mockResolvedValue(undefined);
     const loginAdcSpy = vi.spyOn(gcloud, 'loginAdc').mockResolvedValue(undefined);
     vi.spyOn(fs, 'existsSync').mockReturnValue(true);
 
-    await renewAccount('rk', { private: true });
+    await renewAccount('rk', { private: true, forceConsent: true });
 
-    expect(loginSpy).toHaveBeenCalledWith('simon@redkrypton.com', {
-      scopes,
-      clientIdFile: '/tmp/client_secret.json',
-      private: true,
-      force: true
-    });
     expect(loginAdcSpy).toHaveBeenCalledWith('simon@redkrypton.com', {
       scopes,
       clientIdFile: '/tmp/client_secret.json',
-      private: true
+      private: true,
+      forceConsent: true
     });
     expect(profiles.saveRenewalSettings).toHaveBeenCalledWith('rk', {
       email: 'simon@redkrypton.com',

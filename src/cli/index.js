@@ -72,6 +72,7 @@ ${chalk.bold('HOW TO ADD AN ACCOUNT')}
     .argument('[name]', 'Name of the new configuration')
     .argument('[email]', 'Email address for the account')
     .option('--private', 'Open OAuth URLs in a Chrome incognito window')
+    .option('--force-consent', 'Always show the Google OAuth consent screen')
     .option('--scopes <scopes>', 'Comma-separated OAuth scopes to pass to application-default login')
     .option('--client-id-file <path>', 'Desktop OAuth client JSON for application-default login')
     .option('--gmail', 'Add Gmail read/write scopes to the shared account credential')
@@ -84,6 +85,7 @@ ${chalk.bold('HOW TO ADD AN ACCOUNT')}
     .description('Renew credentials using an account\'s saved email and scopes')
     .argument('<name>', 'Name of the configuration to renew')
     .option('--private', 'Open OAuth URLs in a Chrome incognito window')
+    .option('--force-consent', 'Always show the Google OAuth consent screen')
     .action((name, options) => renewAccount(name, options));
 
   program
@@ -198,23 +200,12 @@ export async function createAccount(name, email, options = {}) {
         console.log(ui.bold(`\n2. Activating configuration '${name}'...`));
         await gcloud.activateConfiguration(name);
 
-        // 3. Login
-        console.log(ui.bold('\n3. Logging in...'));
-        const gcloudLoginOptions = configExists
-            ? { ...normalizedOptions, force: true }
-            : normalizedOptions;
-        await gcloud.login(email, gcloudLoginOptions);
-
-        // 4. Set Account
-        console.log(ui.bold(`\n4. Setting account to ${email}...`));
-        await gcloud.setAccount(email);
-
-        // 5. Login ADC
-        console.log(ui.bold('\n5. Setting up Application Default Credentials (ADC)...'));
+        // 3. Authorize one shared credential for gcloud, ADC consumers, and gws.
+        console.log(ui.bold('\n3. Authorizing gswitch...'));
         await gcloud.loginAdc(email, normalizedOptions);
 
-        // 6. Save ADC in the account profile.
-        console.log(ui.bold(`\n6. Saving ADC file for '${name}'...`));
+        // 4. Save ADC in the account profile.
+        console.log(ui.bold(`\n4. Saving shared credentials for '${name}'...`));
         await gcloud.saveAdc(name);
         await profiles.saveRenewalSettings(name, {
             email,
@@ -222,8 +213,13 @@ export async function createAccount(name, email, options = {}) {
             ...(options.clientIdFile ? { clientIdFile } : {})
         });
 
-        // 7. Point gws at the same user credential instead of running another OAuth flow.
-        console.log(ui.bold('\n7. Setting up Google Workspace CLI (gws)...'));
+        // 5. Make the gcloud configuration use the same saved credential.
+        console.log(ui.bold(`\n5. Configuring gcloud for ${email}...`));
+        await gcloud.setAccount(email);
+        await gcloud.setCredentialFileOverride(name);
+
+        // 6. Point gws at the same user credential instead of running another OAuth flow.
+        console.log(ui.bold('\n6. Setting up Google Workspace CLI (gws)...'));
         const gwsInstalled = await gws.isInstalled();
         if (gwsInstalled) {
             const adcPath = await gcloud.getAdcPath(name);
@@ -233,12 +229,12 @@ export async function createAccount(name, email, options = {}) {
             console.log(ui.dim('gws is not installed, skipping Google Workspace CLI setup.'));
         }
 
-        // 8. Re-activate the target config in case auth commands changed it.
-        console.log(ui.bold(`\n8. Re-activating configuration '${name}'...`));
+        // 7. Re-activate the target config in case auth commands changed it.
+        console.log(ui.bold(`\n7. Re-activating configuration '${name}'...`));
         await gcloud.activateConfiguration(name);
 
-        // 9. Restore the active ADC file from the saved config snapshot.
-        console.log(ui.bold(`\n9. Restoring ADC for '${name}'...`));
+        // 8. Restore the active ADC file from the saved config snapshot.
+        console.log(ui.bold(`\n8. Restoring ADC for '${name}'...`));
         const adcRestored = await gcloud.updateAdc(name);
         if (!adcRestored) {
             throw new Error(`Failed to restore ADC file for '${name}'`);
@@ -276,7 +272,8 @@ export async function renewAccount(name, options = {}) {
     };
     return createAccount(name, settings.email, {
         ...savedOptions,
-        ...(options.private ? { private: true } : {})
+        ...(options.private ? { private: true } : {}),
+        ...(options.forceConsent ? { forceConsent: true } : {})
     });
 }
 
@@ -521,6 +518,8 @@ async function switchAccount(account) {
     console.log(ui.warn(`⚠️  Warning: Application-default credentials file is missing for '${account}'.`));
     console.log(ui.hint('Refresh the account profile:'));
     console.log(ui.cmd(`gswitch renew ${account}`));
+  } else {
+    await gcloud.setCredentialFileOverride(account);
   }
 
   const gwsInstalled = await gws.isInstalled();

@@ -1,6 +1,6 @@
 {
   "name": "@supercorks/gswitch",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "description": "Switch Google Cloud configurations and application default credentials",
   "type": "module",
   "publishConfig": {
@@ -17,7 +17,8 @@
   },
   "files": [
     "bin",
-    "src"
+    "src",
+    "docs/oauth-verification-review.md"
   ],
   "engines": {
     "node": ">=16"

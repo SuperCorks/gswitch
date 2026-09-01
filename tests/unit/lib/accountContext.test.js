@@ -41,6 +41,7 @@ describe('lib/accountContext', () => {
     vi.spyOn(profiles, 'getScopedEnvironment').mockResolvedValue({
       GSWITCH_PROFILE: 'rk',
       CLOUDSDK_ACTIVE_CONFIG_NAME: 'rk',
+      CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: '/profiles/rk/adc.json',
       GOOGLE_APPLICATION_CREDENTIALS: '/profiles/rk/adc.json',
       GOOGLE_WORKSPACE_CLI_CONFIG_DIR: '/profiles/rk/gws'
     });
@@ -58,11 +59,14 @@ describe('lib/accountContext', () => {
         env: expect.objectContaining({
           GSWITCH_PROFILE: 'rk',
           CLOUDSDK_ACTIVE_CONFIG_NAME: 'rk',
+          CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: '/profiles/rk/adc.json',
           GOOGLE_APPLICATION_CREDENTIALS: '/profiles/rk/adc.json'
         })
       })
     );
-    for (const selector of inheritedSelectors) {
+    for (const selector of inheritedSelectors.filter(
+      selector => selector !== 'CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE'
+    )) {
       expect(execaModule.execa.mock.calls[0][2].env).not.toHaveProperty(selector);
     }
   });

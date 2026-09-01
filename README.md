@@ -40,6 +40,7 @@ gswitch run sim -- node scripts/sync-drive.js
 `gswitch run` does not activate a global configuration or overwrite the live ADC and `gws` files. It scopes the selected account to the child process with:
 
 - `CLOUDSDK_ACTIVE_CONFIG_NAME`
+- `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE`
 - `GOOGLE_APPLICATION_CREDENTIALS`
 - `GOOGLE_WORKSPACE_CLI_CONFIG_DIR`
 - `GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE` when the profile does not have a legacy dedicated `gws` credential
@@ -81,6 +82,7 @@ gswitch new
 # Or with arguments:
 gswitch new personal user@example.com
 gswitch new personal user@example.com --private
+gswitch new personal user@example.com --force-consent
 gswitch new personal user@example.com --scopes=https://www.googleapis.com/auth/spreadsheets,https://www.googleapis.com/auth/cloud-platform
 gswitch new personal user@example.com --gmail --calendar --drive
 gswitch new personal user@example.com --gmail --drive --client-id-file=/path/to/client_secret.json
@@ -89,16 +91,18 @@ gswitch new personal user@example.com --gmail --drive --client-id-file=/path/to/
 This guides you through the entire setup process:
 - Create the gcloud configuration if it does not already exist
 - Activate the target configuration before starting OAuth
-- Log in with the selected account
-- Set up application default credentials
+- Authorize one shared user credential through the gswitch OAuth client
 - Save ADC under `~/.config/gswitch/profiles/<name>/adc.json`
+- Configure the gcloud profile to use that same ADC
 - Configure `gws` to reuse the same ADC instead of running another OAuth flow
 - Re-activate the target configuration when setup completes
 - Restore the live ADC file so application-default commands work immediately
 
-Use `--private` to run both OAuth steps with `gcloud --no-launch-browser` and open the emitted auth URL in a Google Chrome incognito window.
+Use `--private` to run the OAuth step with `gcloud --no-launch-browser` and open the emitted auth URL in a Google Chrome incognito window.
 
-Use `--scopes` to pass a comma-separated scope list to `gcloud auth application-default login`. `gcloud auth login` does not support that flag, so `gswitch` only applies custom scopes to the ADC step. When custom scopes are requested, `gswitch` also adds `openid` and the Google account email scope so gcloud can verify that the browser returned the requested account.
+Use `--force-consent` when you need Google to display the complete consent screen even if the account previously authorized the client. This is useful for OAuth verification recordings and for reviewing an account's requested scopes. It does not change the requested scopes.
+
+Use `--scopes` to pass a comma-separated scope list to `gcloud auth application-default login`. When custom scopes are requested, `gswitch` also adds `openid` and the Google account email scope so gcloud can verify that the browser returned the requested account.
 
 Use the helper flags to add common Google Workspace permissions to the shared ADC used by Google client libraries and `gws`:
 - `--gmail` adds Gmail read/write email access
@@ -128,17 +132,21 @@ Desktop OAuth client configuration is distributed app identity, not a user crede
 ### OAuth verification reviewer instructions
 
 `gswitch` is a local CLI integration platform, not a hosted application. It has
-no separate username, password, test tenant, or server-side account. Reviewers
-can install the public package and authenticate with a Google-owned test account:
+no separate username, password, test tenant, or server-side account. During
+OAuth verification, reviewers receive a staging package containing the dedicated
+gswitch Desktop OAuth client and can authenticate with a Google-owned test account:
 
 ```bash
-npm install -g @supercorks/gswitch
-gswitch new review reviewer@example.com --gmail --calendar --drive
+npm install -g /path/to/supercorks-gswitch-review.tgz
+gswitch new review reviewer@example.com --gmail --calendar --drive --force-consent
 ```
 
-The command opens the Google OAuth flow, stores the resulting credential only on
-the reviewer's computer, and configures both Application Default Credentials and
-`gws` to use it. The requested production scopes map to user-selected features:
+The Desktop client configuration identifies the installed application; it does
+not contain a Google user access token, refresh token, or test-account password.
+The command opens one Google OAuth flow, stores the resulting credential only on
+the reviewer's computer, and configures `gcloud`, Application Default Credentials,
+Google client libraries, and `gws` to use it. The requested production scopes map
+to user-selected features:
 
 | Scope | User-facing purpose |
 | --- | --- |
@@ -165,13 +173,17 @@ picker or created by the app; a local CLI has no file-picker interaction.
 
 Running `gswitch new` on an existing configuration will refresh the credentials without recreating the configuration.
 
+See [OAuth verification reviewer runbook](docs/oauth-verification-review.md) for
+the exact submitted scopes, prerequisites, test sequence, and expected results.
+
 ### Renew expired credentials
 ```bash
 gswitch renew personal
 gswitch renew personal --private
+gswitch renew personal --force-consent
 ```
 
-`gswitch renew` reuses the email address, OAuth scopes, and any explicitly selected OAuth client from the profile's most recent successful `gswitch new` or `gswitch renew` flow. It runs the same browser authentication and ADC setup without asking you to re-enter those details. Use `--private` to open the OAuth flows in a Chrome incognito window.
+`gswitch renew` reuses the email address, OAuth scopes, and any explicitly selected OAuth client from the profile's most recent successful `gswitch new` or `gswitch renew` flow. It runs the same browser authentication and ADC setup without asking you to re-enter those details. Use `--private` to open the OAuth flow in a Chrome incognito window, or `--force-consent` to display the complete consent screen again.
 
 Profiles created before `gswitch renew` do not have saved scope metadata because Google ADC files do not record the requested scope list. Refresh those profiles once with their original setup command, for example:
 
@@ -195,8 +207,9 @@ Account profiles live under `~/.config/gswitch/profiles/<name>/`. Each newly aut
 When you switch accounts globally, `gswitch` automatically:
 1. Activates the specified gcloud configuration
 2. Restores the profile ADC to the standard `application_default_credentials.json` location
-3. Points the global `gws` slot at shared ADC or restores a legacy encrypted `gws` credential
-4. Displays the current project and suggests `gswitch project` to change it
+3. Points the gcloud configuration at the same profile ADC
+4. Points the global `gws` slot at shared ADC or restores a legacy encrypted `gws` credential
+5. Displays the current project and suggests `gswitch project` to change it
 
 `gswitch run` and `gswitch shell` leave all three global slots untouched and select the profile only through child-process environment variables.
 

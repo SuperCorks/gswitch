@@ -239,6 +239,7 @@ export class ProfileStore {
     const environment = {
       GSWITCH_PROFILE: name,
       CLOUDSDK_ACTIVE_CONFIG_NAME: name,
+      CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: adcPath,
       GOOGLE_APPLICATION_CREDENTIALS: adcPath,
       GOOGLE_WORKSPACE_CLI_CONFIG_DIR: gwsConfigDir
     };

@@ -1,0 +1,65 @@
+GSWITCH OAUTH VERIFICATION DEMO
+
+gswitch is a local command-line integration platform.
+
+One Google OAuth consent flow creates one local credential for gcloud, Application Default Credentials, Google client libraries, local agents, scripts, and gws.
+
+No gswitch server or backend receives Google credentials or Google user data.
+
+
+OAUTH CONSENT AND EXACT SCOPES
+
+This staging build contains the dedicated gswitch Desktop OAuth client from project supercorks-gswitch.
+
+The browser address bar will show client ID 1015770073522-ht4vkjoaaq0n3n1ipg92no747sdqi569.apps.googleusercontent.com.
+
+We will expand Show all services and show the exact six submitted scopes before granting access.
+
+The public --force-consent option only makes Google display the complete consent screen again. It does not add or change any requested scope.
+
+
+GOOGLE CLOUD: cloud-platform
+
+The same gswitch credential is used by Cloud SDK and Google Cloud client libraries. Users can direct local agents and scripts to read, create, update, and delete resources that their selected Google account can access.
+
+A read-only scope cannot support those write workflows. We will create a Cloud Storage object and verify the result in the source Google Cloud account.
+
+
+GMAIL: gmail.modify
+
+Users can search and read existing mail, create drafts, manage labels, and change message state such as read, unread, starred, or archived.
+
+Read-only and metadata scopes cannot perform those changes. gmail.modify does not grant permanent message deletion. We will create and modify a draft, then verify the result in Gmail.
+
+
+CALENDAR: calendar
+
+Users can manage calendars as well as events. We will create a disposable secondary calendar, create and update an event, verify both in Google Calendar, and remove only the disposable calendar.
+
+Event-only scopes cannot create, update, share, or remove calendars.
+
+
+DRIVE: drive
+
+Users can direct local agents and scripts to find and manage arbitrary existing files across My Drive and shared drives, including Docs and Sheets operations.
+
+This local CLI has no Google Picker. drive.file is therefore insufficient because it is limited to app-created or picker-selected files. We will rename a pre-existing fixture and verify the result in Drive.
+
+
+ACCOUNT ISOLATION AND LOCAL STORAGE
+
+Every command will run through gswitch run with the same isolated account alias. Both gcloud and gws will identify the same selected Google account.
+
+The refresh credential remains on the user's computer in a file readable only by that operating-system user. No account password or user credential is bundled in gswitch.
+
+
+REVIEWER ACCESS
+
+gswitch has no separate application login, password, hosted tenant, or billing requirement. A reviewer can install the supplied staging package and complete the same flow using a Google-owned test account.
+
+The staging package includes installed-application identity only. It contains no user access token, refresh token, or Google account password.
+
+
+DEMO COMPLETE
+
+The video has shown the complete gswitch OAuth consent flow, all submitted scopes fully expanded, the functionality enabled by each scope, and the resulting changes in the source Google account.

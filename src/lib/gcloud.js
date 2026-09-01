@@ -206,14 +206,31 @@ export class GCloud {
     await execa('gcloud', ['config', 'set', 'account', email], { stdio: 'inherit' });
   }
 
+  async setCredentialFileOverride(account) {
+    const adcPath = await profiles.ensureAdc(account);
+    if (!adcPath) {
+      throw new Error(`Application Default Credentials are missing for '${account}'`);
+    }
+
+    try {
+      await execa(
+        'gcloud',
+        ['config', 'set', 'auth/credential_file_override', adcPath, '--quiet'],
+        { timeout: 10000 }
+      );
+    } catch (error) {
+      throw new Error(`Failed to configure gcloud credentials for '${account}': ${error.message}`);
+    }
+  }
+
   async login(email, options = {}) {
     const args = this.buildAuthArgs(['auth', 'login'], email);
     if (options.force) {
       args.push('--force');
     }
 
-    if (options.private) {
-      await this.runPrivateLogin(args);
+    if (options.private || options.forceConsent) {
+      await this.runBrowserLogin(args, options);
       return;
     }
 
@@ -223,8 +240,8 @@ export class GCloud {
   async loginAdc(email, options = {}) {
     const args = this.buildAuthArgs(['auth', 'application-default', 'login'], email, options);
 
-    if (options.private) {
-      await this.runPrivateLogin(args);
+    if (options.private || options.forceConsent) {
+      await this.runBrowserLogin(args, options);
       return;
     }
 
@@ -254,6 +271,10 @@ export class GCloud {
   }
 
   async runPrivateLogin(args) {
+    return this.runBrowserLogin(args, { private: true });
+  }
+
+  async runBrowserLogin(args, options = {}) {
     const child = execa('gcloud', [...args, '--no-launch-browser'], {
       stdin: 'inherit',
       stdout: 'pipe',
@@ -278,9 +299,11 @@ export class GCloud {
       }
 
       launched = true;
-      void this.launchChromePrivate(url).catch(() => {
-        console.error(ui.warn(`\nCould not launch Google Chrome in incognito mode automatically.`));
-        console.error(ui.hint(`Open this URL in Chrome manually: ${url}`));
+      const browserUrl = options.forceConsent ? this.addConsentPrompt(url) : url;
+      void this.launchChrome(browserUrl, { private: options.private }).catch(() => {
+        const mode = options.private ? ' in incognito mode' : '';
+        console.error(ui.warn(`\nCould not launch Google Chrome${mode} automatically.`));
+        console.error(ui.hint(`Open this URL in Chrome manually: ${browserUrl}`));
       });
     };
 
@@ -288,6 +311,12 @@ export class GCloud {
     child.stderr?.on('data', chunk => handleChunk(chunk, process.stderr));
 
     await child;
+  }
+
+  addConsentPrompt(url) {
+    const parsed = new URL(url);
+    parsed.searchParams.set('prompt', 'consent');
+    return parsed.toString();
   }
 
   extractOAuthUrl(output) {
@@ -300,22 +329,31 @@ export class GCloud {
   }
 
   async launchChromePrivate(url) {
-    const platform = os.platform();
-    const commands = {
-      darwin: [['open', ['-na', 'Google Chrome', '--args', '--incognito', url]]],
-      linux: [
-        ['google-chrome', ['--incognito', url]],
-        ['google-chrome-stable', ['--incognito', url]],
-        ['chromium', ['--incognito', url]],
-        ['chromium-browser', ['--incognito', url]]
-      ],
-      win32: [['cmd', ['/c', 'start', '', 'chrome', '--incognito', url]]]
-    };
+    return this.launchChrome(url, { private: true });
+  }
 
-    for (const [command, args] of commands[platform] || []) {
+  async launchChrome(url, options = {}) {
+    const platform = os.platform();
+    const privateArgs = options.private ? ['--incognito'] : [];
+    const commands = platform === 'darwin'
+      ? [['open', options.private
+        ? ['-na', 'Google Chrome', '--args', '--incognito', url]
+        : ['-a', 'Google Chrome', url]]]
+      : {
+          linux: [
+            ['google-chrome', [...privateArgs, url]],
+            ['google-chrome-stable', [...privateArgs, url]],
+            ['chromium', [...privateArgs, url]],
+            ['chromium-browser', [...privateArgs, url]]
+          ],
+          win32: [['cmd', ['/c', 'start', '', 'chrome', ...privateArgs, url]]]
+        }[platform] || [];
+
+    for (const [command, args] of commands) {
       const result = await execa(command, args, { reject: false });
       if (!result.failed && result.exitCode === 0) {
-        console.log(ui.hint('Opened the OAuth URL in a Chrome incognito window.'));
+        const mode = options.private ? ' incognito' : '';
+        console.log(ui.hint(`Opened the OAuth URL in a Chrome${mode} window.`));
         return;
       }
     }

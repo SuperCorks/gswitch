@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { gcloud } from '../../../src/lib/gcloud.js';
+import { profiles } from '../../../src/lib/profiles.js';
 import * as execaModule from 'execa';
 import fs from 'fs/promises';
 import os from 'os';
@@ -87,6 +88,25 @@ describe('lib/gcloud', () => {
       expect(execaModule.execa).toHaveBeenCalledWith(
         'gcloud',
         ['config', 'configurations', 'delete', 'personal', '--quiet'],
+        { timeout: 10000 }
+      );
+    });
+
+    it('should point gcloud at the profile ADC', async () => {
+      vi.spyOn(profiles, 'ensureAdc').mockResolvedValue('/profiles/personal/adc.json');
+      vi.mocked(execaModule.execa).mockResolvedValue({ stdout: '' });
+
+      await gcloud.setCredentialFileOverride('personal');
+
+      expect(execaModule.execa).toHaveBeenCalledWith(
+        'gcloud',
+        [
+          'config',
+          'set',
+          'auth/credential_file_override',
+          '/profiles/personal/adc.json',
+          '--quiet'
+        ],
         { timeout: 10000 }
       );
     });
@@ -307,6 +327,57 @@ describe('lib/gcloud', () => {
         ],
         { stdio: 'inherit' }
       );
+    });
+
+    it('should force the complete consent screen in a standard Chrome window', async () => {
+      vi.mocked(os.platform).mockReturnValue('darwin');
+
+      const stdout = new PassThrough();
+      const stderr = new PassThrough();
+      let resolveChild;
+      const child = new Promise(resolve => {
+        resolveChild = resolve;
+      });
+      child.stdout = stdout;
+      child.stderr = stderr;
+
+      vi.mocked(execaModule.execa)
+        .mockImplementationOnce(() => child)
+        .mockResolvedValueOnce({ exitCode: 0, failed: false });
+
+      const stdoutWrite = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+      const url = 'https://accounts.google.com/o/oauth2/auth?foo=bar';
+      const consentUrl = `${url}&prompt=consent`;
+
+      const loginPromise = gcloud.loginAdc('user@example.com', { forceConsent: true });
+      stdout.write(`Open the following link in your browser:\n${url}\n`);
+      resolveChild({ exitCode: 0 });
+      await loginPromise;
+
+      expect(execaModule.execa).toHaveBeenNthCalledWith(
+        1,
+        'gcloud',
+        ['auth', 'application-default', 'login', 'user@example.com', '--no-launch-browser'],
+        {
+          stdin: 'inherit',
+          stdout: 'pipe',
+          stderr: 'pipe'
+        }
+      );
+      expect(execaModule.execa).toHaveBeenNthCalledWith(
+        2,
+        'open',
+        ['-a', 'Google Chrome', consentUrl],
+        { reject: false }
+      );
+
+      stdoutWrite.mockRestore();
+    });
+
+    it('should replace an existing OAuth prompt parameter', () => {
+      expect(gcloud.addConsentPrompt(
+        'https://accounts.google.com/o/oauth2/auth?foo=bar&prompt=select_account'
+      )).toBe('https://accounts.google.com/o/oauth2/auth?foo=bar&prompt=consent');
     });
 
     it('should launch Chrome incognito for private login on macOS', async () => {

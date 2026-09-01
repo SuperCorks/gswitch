@@ -140,6 +140,7 @@ describe('lib/profiles', () => {
     await expect(profiles.getScopedEnvironment('rk')).resolves.toEqual({
       GSWITCH_PROFILE: 'rk',
       CLOUDSDK_ACTIVE_CONFIG_NAME: 'rk',
+      CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: '/profiles/rk/adc.json',
       GOOGLE_APPLICATION_CREDENTIALS: '/profiles/rk/adc.json',
       GOOGLE_WORKSPACE_CLI_CONFIG_DIR: path.join(mockHome, '.config/gswitch/profiles/rk/gws'),
       GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE: '/profiles/rk/adc.json'
