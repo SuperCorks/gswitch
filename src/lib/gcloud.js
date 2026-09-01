@@ -1,10 +1,9 @@
 import { execa } from 'execa';
 import fs from 'fs/promises';
 import os from 'os';
+import { fileURLToPath } from 'url';
 import { ui } from './ui.js';
 import { profiles } from './profiles.js';
-
-const OAUTH_URL_PATTERN = /https:\/\/accounts\.google\.com\/[^\s]+|https:\/\/[^\s]+/g;
 
 export class GCloud {
   async getConfigurations() {
@@ -275,57 +274,25 @@ export class GCloud {
   }
 
   async runBrowserLogin(args, options = {}) {
-    const child = execa('gcloud', [...args, '--no-launch-browser'], {
-      stdin: 'inherit',
-      stdout: 'pipe',
-      stderr: 'pipe'
+    const browserHelper = fileURLToPath(new URL('../scripts/oauth-browser.js', import.meta.url));
+    const browserCommand = [process.execPath, browserHelper]
+      .map(value => `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`)
+      .join(' ');
+
+    await execa('gcloud', args, {
+      stdio: 'inherit',
+      env: {
+        BROWSER: `${browserCommand} %s`,
+        GSWITCH_OAUTH_FORCE_CONSENT: options.forceConsent ? '1' : '0',
+        GSWITCH_OAUTH_PRIVATE: options.private ? '1' : '0'
+      }
     });
-
-    let launched = false;
-    let recentOutput = '';
-
-    const handleChunk = (chunk, stream) => {
-      const text = chunk.toString();
-      stream.write(text);
-
-      if (launched) {
-        return;
-      }
-
-      recentOutput = `${recentOutput}${text}`.slice(-12000);
-      const url = this.extractOAuthUrl(recentOutput);
-      if (!url) {
-        return;
-      }
-
-      launched = true;
-      const browserUrl = options.forceConsent ? this.addConsentPrompt(url) : url;
-      void this.launchChrome(browserUrl, { private: options.private }).catch(() => {
-        const mode = options.private ? ' in incognito mode' : '';
-        console.error(ui.warn(`\nCould not launch Google Chrome${mode} automatically.`));
-        console.error(ui.hint(`Open this URL in Chrome manually: ${browserUrl}`));
-      });
-    };
-
-    child.stdout?.on('data', chunk => handleChunk(chunk, process.stdout));
-    child.stderr?.on('data', chunk => handleChunk(chunk, process.stderr));
-
-    await child;
   }
 
   addConsentPrompt(url) {
     const parsed = new URL(url);
     parsed.searchParams.set('prompt', 'consent');
     return parsed.toString();
-  }
-
-  extractOAuthUrl(output) {
-    const matches = output.match(OAUTH_URL_PATTERN);
-    if (!matches?.length) {
-      return null;
-    }
-
-    return matches.find(url => url.includes('accounts.google.com')) || matches[0];
   }
 
   async launchChromePrivate(url) {

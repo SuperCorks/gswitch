@@ -5,7 +5,6 @@ import * as execaModule from 'execa';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
-import { PassThrough } from 'stream';
 
 vi.mock('execa');
 vi.mock('fs/promises');
@@ -330,48 +329,22 @@ describe('lib/gcloud', () => {
     });
 
     it('should force the complete consent screen in a standard Chrome window', async () => {
-      vi.mocked(os.platform).mockReturnValue('darwin');
+      vi.mocked(execaModule.execa).mockResolvedValue({ stdout: '' });
 
-      const stdout = new PassThrough();
-      const stderr = new PassThrough();
-      let resolveChild;
-      const child = new Promise(resolve => {
-        resolveChild = resolve;
-      });
-      child.stdout = stdout;
-      child.stderr = stderr;
+      await gcloud.loginAdc('user@example.com', { forceConsent: true });
 
-      vi.mocked(execaModule.execa)
-        .mockImplementationOnce(() => child)
-        .mockResolvedValueOnce({ exitCode: 0, failed: false });
-
-      const stdoutWrite = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
-      const url = 'https://accounts.google.com/o/oauth2/auth?foo=bar';
-      const consentUrl = `${url}&prompt=consent`;
-
-      const loginPromise = gcloud.loginAdc('user@example.com', { forceConsent: true });
-      stdout.write(`Open the following link in your browser:\n${url}\n`);
-      resolveChild({ exitCode: 0 });
-      await loginPromise;
-
-      expect(execaModule.execa).toHaveBeenNthCalledWith(
-        1,
+      expect(execaModule.execa).toHaveBeenCalledWith(
         'gcloud',
-        ['auth', 'application-default', 'login', 'user@example.com', '--no-launch-browser'],
+        ['auth', 'application-default', 'login', 'user@example.com'],
         {
-          stdin: 'inherit',
-          stdout: 'pipe',
-          stderr: 'pipe'
+          stdio: 'inherit',
+          env: {
+            BROWSER: expect.stringMatching(/oauth-browser\.js" %s$/),
+            GSWITCH_OAUTH_FORCE_CONSENT: '1',
+            GSWITCH_OAUTH_PRIVATE: '0'
+          }
         }
       );
-      expect(execaModule.execa).toHaveBeenNthCalledWith(
-        2,
-        'open',
-        ['-a', 'Google Chrome', consentUrl],
-        { reject: false }
-      );
-
-      stdoutWrite.mockRestore();
     });
 
     it('should replace an existing OAuth prompt parameter', () => {
@@ -380,48 +353,23 @@ describe('lib/gcloud', () => {
       )).toBe('https://accounts.google.com/o/oauth2/auth?foo=bar&prompt=consent');
     });
 
-    it('should launch Chrome incognito for private login on macOS', async () => {
-      vi.mocked(os.platform).mockReturnValue('darwin');
+    it('should request an incognito browser for private login', async () => {
+      vi.mocked(execaModule.execa).mockResolvedValue({ stdout: '' });
 
-      const stdout = new PassThrough();
-      const stderr = new PassThrough();
-      let resolveChild;
-      const child = new Promise(resolve => {
-        resolveChild = resolve;
-      });
-      child.stdout = stdout;
-      child.stderr = stderr;
+      await gcloud.login('user@example.com', { private: true });
 
-      vi.mocked(execaModule.execa)
-        .mockImplementationOnce(() => child)
-        .mockResolvedValueOnce({ exitCode: 0, failed: false });
-
-      const stdoutWrite = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
-      const url = 'https://accounts.google.com/o/oauth2/auth?foo=bar';
-
-      const loginPromise = gcloud.login('user@example.com', { private: true });
-      stdout.write(`Open the following link in your browser:\n${url}\n`);
-      resolveChild({ exitCode: 0 });
-      await loginPromise;
-
-      expect(execaModule.execa).toHaveBeenNthCalledWith(
-        1,
+      expect(execaModule.execa).toHaveBeenCalledWith(
         'gcloud',
-        ['auth', 'login', 'user@example.com', '--no-launch-browser'],
+        ['auth', 'login', 'user@example.com'],
         {
-          stdin: 'inherit',
-          stdout: 'pipe',
-          stderr: 'pipe'
+          stdio: 'inherit',
+          env: {
+            BROWSER: expect.stringMatching(/oauth-browser\.js" %s$/),
+            GSWITCH_OAUTH_FORCE_CONSENT: '0',
+            GSWITCH_OAUTH_PRIVATE: '1'
+          }
         }
       );
-      expect(execaModule.execa).toHaveBeenNthCalledWith(
-        2,
-        'open',
-        ['-na', 'Google Chrome', '--args', '--incognito', url],
-        { reject: false }
-      );
-
-      stdoutWrite.mockRestore();
     });
   });
 });
